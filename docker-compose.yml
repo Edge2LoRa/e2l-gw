@@ -1,0 +1,42 @@
+version: '3'
+
+services:
+ 
+  mqtt_broker:
+    image: eclipse-mosquitto:2
+    ports:
+      - "10883:1883"
+    volumes:
+      - /etc/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - /etc/mosquitto/passwd_file:/mosquitto/config/passwd_file
+    networks:
+      - my_network
+  
+  pyspark_application:
+    image: pyspark_image:1
+    depends_on:
+      - mqtt_broker
+    env_file:
+      - ".env.spark"
+    networks:
+      - my_network
+    
+  e2l_parser:
+    image: e2l_parser:1
+    depends_on:
+      - mqtt_broker
+    env_file:
+      - ".env.parser"
+    ports:
+      - "1680:1680/udp"
+      - "50052:50052"
+    networks:
+      - my_network
+      
+
+
+networks:
+  my_network:
+    external: true
+
+    
