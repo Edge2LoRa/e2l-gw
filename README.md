@@ -1,1 +1,1 @@
-# e2l-gw
+# Edge2LoRa Gateway

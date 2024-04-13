@@ -1,0 +1,62 @@
+syntax = "proto3";
+
+package edge2gateway;
+
+service Edge2Gateway {
+    rpc handle_ed_pub_info (EdPubInfo) returns (GwInfo);
+    rpc update_aggregation_params (AggregationParams) returns (GwResponse);
+    rpc remove_e2device (E2LDeviceInfo) returns (E2LData);
+    rpc add_devices (E2LDevicesInfoComplete) returns (GwResponse);
+    rpc set_active (ActiveFlag) returns (GwResponse);
+}
+
+message ActiveFlag {
+    bool is_active = 1;
+}
+
+message EdPubInfo {
+    string dev_eui = 1;
+    string dev_addr = 2;
+    bytes g_as_ed = 3;
+    bytes dev_public_key = 4;
+}
+
+message GwInfo {
+    sint32 status_code = 1;
+    bytes g_gw_ed = 2;
+}
+
+message AggregationParams {
+    uint32 aggregation_function = 1;
+    uint32 window_size = 2;
+}
+
+message GwResponse {
+    sint32 status_code = 1;
+    string message = 2;
+}
+
+message E2LDeviceInfo {
+    string dev_eui = 1;
+    string dev_addr = 2;
+}
+
+message Device{
+    string dev_eui = 1;
+    string dev_addr = 2;
+    bytes edge_s_enc_key = 3;
+    bytes edge_s_int_key = 4;
+}
+
+message E2LDevicesInfoComplete {
+    repeated Device device_list = 1;
+}
+
+message E2LData {
+  sint64 status_code = 1;
+  string dev_eui = 2;
+  string dev_addr = 3;
+  sint64 aggregated_data = 4;
+  uint64 aggregated_data_num = 5;
+  uint64 timetag = 6;
+}

@@ -1,0 +1,69 @@
+syntax = "proto3";
+
+package edge2applicationserver;
+
+service Edge2ApplicationServer {
+  rpc new_data (EdgeData) returns (ResponseMessage);
+
+  rpc store_e2gw_pub_info (E2GWPubInfo) returns (ResponseMessage);
+  
+  rpc gw_log (GwLog) returns (ResponseMessage);
+
+  rpc sys_log (SysLog) returns (ResponseMessage);
+
+  rpc gw_frames_stats (GwFrameStats) returns (ResponseMessage);
+
+} 
+
+message ResponseMessage {
+  sint32 status_code = 1;
+  string message = 2;
+}
+
+message E2GWPubInfo {
+  string gw_ip_addr = 1;
+  string gw_port = 2;
+  bytes e2gw_pub_key = 3;
+}
+
+message EdgeData {
+  string gw_id = 1;
+  string dev_eui = 2;
+  string dev_addr = 3;
+  sint64 aggregated_data = 4;
+  repeated uint64 fcnts = 5;
+  uint64 timetag = 6;
+}
+
+message GwLog {
+  string gw_id = 1;
+  string dev_addr = 2;
+  string log = 3;
+  uint64 frame_type = 4;
+  uint64 fcnt = 5;
+  uint64 timetag = 6;
+}
+
+message SysLog {
+  string gw_id = 1;
+  uint64 memory_usage = 2;
+  uint64 memory_available = 3;
+  float cpu_usage = 4;
+  uint64 data_received = 5;
+  uint64 data_transmitted = 6;
+}
+
+message GwFrameStats {
+  string gw_id = 1;
+  uint64 legacy_frames = 2;
+  repeated FcntStruct legacy_fcnts = 3;
+  uint64 edge_frames = 4;
+  repeated FcntStruct edge_fcnts = 5;
+  uint64 edge_not_processed_frames = 6;
+  repeated FcntStruct edge_not_processed_fcnts = 7;
+}
+
+message FcntStruct {
+  string dev_addr = 3;
+  uint64 fcnt = 2;
+}

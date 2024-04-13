@@ -1,42 +1,38 @@
-version: '3'
+version: "3"
 
 services:
- 
-  mqtt_broker:
-    image: eclipse-mosquitto:2
+  e2l_gw_broker:
+    image: e2l-gw-broker:v1.0.0
     ports:
       - "10883:1883"
     volumes:
-      - /etc/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
-      - /etc/mosquitto/passwd_file:/mosquitto/config/passwd_file
+      - ./e2l-gw-broker/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
+      - ./e2l-gw-broker/data/:/mosquitto/data/
+      - ./e2l-gw-broker/log/:/mosquitto/log/
     networks:
-      - my_network
-  
+      - e2l_network
+
   pyspark_application:
     image: pyspark_image:1
     depends_on:
-      - mqtt_broker
+      - e2l_gw_broker
     env_file:
       - ".env.spark"
     networks:
-      - my_network
-    
+      - e2l_network
+
   e2l_parser:
-    image: e2l_parser:1
+    image: e2l-parser:v1.0.0
     depends_on:
-      - mqtt_broker
+      - e2l_gw_broker
     env_file:
       - ".env.parser"
     ports:
       - "1680:1680/udp"
       - "50052:50052"
     networks:
-      - my_network
-      
-
+      - e2l_network
 
 networks:
-  my_network:
+  e2l_network:
     external: true
-
-    
