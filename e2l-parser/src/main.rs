@@ -19,8 +19,12 @@ extern crate serde_derive;
 extern crate serde_json;
 
 extern crate local_ip_address;
+
 // extern crate elliptic_curve;
 extern crate p256;
+
+// GET HOSTNAME
+use gethostname::gethostname;
 
 use e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::FcntStruct;
 use e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::GwFrameStats;
@@ -251,7 +255,6 @@ fn extract_dev_addr_array(v: Vec<u8>) -> [u8; 4] {
     let default_array: [u8; 4] = [0, 0, 0, 0];
     v.try_into().unwrap_or(default_array)
 }
-
 async fn forward(
     bind_addr: &str,
     local_port: i32,
@@ -271,7 +274,10 @@ async fn forward(
     }
 
     // GET IP ADDRESS
-    let gw_rpc_endpoint_address = local_ip_address::local_ip().unwrap().to_string();
+    println!("Hostname: {:?}", gethostname());
+
+    // let gw_rpc_endpoint_address = local_ip_address::local_ip().unwrap().to_string();
+    let gw_rpc_endpoint_address: String = gethostname().into_string().unwrap();
     let gw_sys_rpc_endpoint_address = local_ip_address::local_ip().unwrap().to_string();
     let gw_frames_rpc_endpoint_address = local_ip_address::local_ip().unwrap().to_string();
     let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();

@@ -31,6 +31,7 @@ local-ip-address = "0.5.4"
 sha2 = "0.10.7"
 sysinfo = "0.29.10"
 paho-mqtt = "0.12.3"
+gethostname = "0.4.3"
 
 [build-dependencies]
 tonic-build = "0.9"
