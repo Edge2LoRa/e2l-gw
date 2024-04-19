@@ -12,14 +12,14 @@ services:
     networks:
       - e2l_network
 
-  pyspark_application:
-    image: pyspark_image:1
-    depends_on:
-      - e2l_gw_broker
-    env_file:
-      - ".env.spark"
-    networks:
-      - e2l_network
+  # pyspark_application:
+  #   image: pyspark_image:1
+  #   depends_on:
+  #     - e2l_gw_broker
+  #   env_file:
+  #     - ".env.spark"
+  #   networks:
+  #     - e2l_network
 
   e2l_parser:
     image: e2l-parser:v1.0.0
@@ -35,4 +35,6 @@ services:
 
 networks:
   e2l_network:
+    name: e2l_network
+    driver: overlay
     external: true
