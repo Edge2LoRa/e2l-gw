@@ -24,7 +24,7 @@ services:
       - e2l_network
 
   e2l_parser:
-    hostname: e2l-parser-${GW_ID}
+    hostname: e2l-gw-${GW_ID}
     image: e2l-parser:v1.0.0
     depends_on:
       - e2l_gw_broker
