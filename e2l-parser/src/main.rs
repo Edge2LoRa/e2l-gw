@@ -18,7 +18,7 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 
-extern crate local_ip_address;
+// extern crate local_ip_address;
 
 // extern crate elliptic_curve;
 extern crate p256;
@@ -273,13 +273,14 @@ async fn forward(
         ignore_logs_flag = false;
     }
 
-    // GET IP ADDRESS
-    println!("Hostname: {:?}", gethostname());
+    // GET HOSTNAME
 
     // let gw_rpc_endpoint_address = local_ip_address::local_ip().unwrap().to_string();
+    // let gw_sys_rpc_endpoint_address = local_ip_address::local_ip().unwrap().to_string();
+    // let gw_frames_rpc_endpoint_address = local_ip_address::local_ip().unwrap().to_string();
     let gw_rpc_endpoint_address: String = gethostname().into_string().unwrap();
-    let gw_sys_rpc_endpoint_address = local_ip_address::local_ip().unwrap().to_string();
-    let gw_frames_rpc_endpoint_address = local_ip_address::local_ip().unwrap().to_string();
+    let gw_sys_rpc_endpoint_address: String = gethostname().into_string().unwrap();
+    let gw_frames_rpc_endpoint_address: String = gethostname().into_string().unwrap();
     let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
     let rpc_endpoint = format!("0.0.0.0:{}", gw_rpc_endpoint_port.clone());
 
