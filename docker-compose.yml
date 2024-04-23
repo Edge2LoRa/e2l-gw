@@ -2,6 +2,7 @@ version: "3"
 
 services:
   e2l_gw_broker:
+    hostname: e2l-gw-broker-${GW_ID}
     image: e2l-gw-broker:v1.0.0
     ports:
       - "10883:1883"
@@ -12,16 +13,18 @@ services:
     networks:
       - e2l_network
 
-  # pyspark_application:
-  #   image: pyspark_image:1
-  #   depends_on:
-  #     - e2l_gw_broker
-  #   env_file:
-  #     - ".env.spark"
-  #   networks:
-  #     - e2l_network
+  pyspark_application:
+    hostname: e2l-process-${GW_ID}
+    image: pyspark_image:1
+    depends_on:
+      - e2l_gw_broker
+    env_file:
+      - ".env.spark"
+    networks:
+      - e2l_network
 
   e2l_parser:
+    hostname: e2l-parser-${GW_ID}
     image: e2l-parser:v1.0.0
     depends_on:
       - e2l_gw_broker
