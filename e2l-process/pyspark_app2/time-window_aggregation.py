@@ -57,9 +57,11 @@ def publish_output_spark(average_rssi, average_snr,f_cnts,device_addr,ts):
     client.loop_start()
 
     json_reading = json.dumps({
-        "Device Address": device_addr,
-        "Average RSSI": average_rssi, 
-        "Average SNR": average_snr, 
+        "devaddr": device_addr,
+        "aggregated_data": {
+            "avg_rssi": average_rssi, 
+            "avg_snr": average_snr
+        },
         "fcnts": f_cnts,
         "timestamps": ts,
         "timestamp_pub":int(time.time())
