@@ -31,6 +31,8 @@ def check_env_vars() -> bool:
         "MQTT_BROKER_PORT",
         "MQTT_TOPIC",
         "MQTT_TOPIC_OUTPUT",
+        "WINDOW_LENGTH",
+        "SLIDE_INTERVAL",
     ]
     for var in env_vars:
         if os.getenv(var) is None:
@@ -136,7 +138,7 @@ if __name__ == "__main__":
 
     # specified a window_legth of 60 sec and a slide interval of 60 sec. In this case the first window collect data for the first 60 sec
     # then the window will slide forward by 60 sec. The second window collect data from second 61 to 120 and so on...
-    windowed_readings = readings.window(60, 60)
+    windowed_readings = readings.window(int(os.getenv("WINDOW_LENGTH")), int(os.getenv("SLIDE_INTERVAL")))
 
     windowed_readings.foreachRDD(process_readings)
 
