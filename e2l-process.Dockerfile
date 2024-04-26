@@ -1,4 +1,4 @@
-FROM bitnami/spark:latest
+FROM bitnami/spark:3.4.3-debian-12-r1
 
 # Set the working directory
 WORKDIR /opt/bitnami/spark
