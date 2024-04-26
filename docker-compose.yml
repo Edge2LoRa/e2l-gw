@@ -15,7 +15,7 @@ services:
 
   pyspark_application:
     hostname: e2l-process-${GW_ID}
-    image: pyspark_image:1
+    image: e2l-process:v1.0.0
     depends_on:
       - e2l_gw_broker
     env_file:
