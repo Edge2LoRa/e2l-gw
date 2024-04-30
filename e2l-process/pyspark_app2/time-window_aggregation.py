@@ -3,6 +3,7 @@ import json
 import time
 import logging
 import os
+import base64 as b64
 import paho.mqtt.client as mqtt
 from pyspark import SparkContext, SparkConf
 from pyspark.streaming import StreamingContext
@@ -48,7 +49,7 @@ def check_env_vars() -> bool:
     return True
 
 
-def publish_output_spark(average_rssi, average_snr, f_cnts, device_addr, ts):
+def publish_output_spark(average_temp, average_hum, average_rssi, average_snr,f_cnts,device_addr,ts):
 
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="publisher_output")
     client.username_pw_set(os.getenv("MQTT_USERNAME"), os.getenv("MQTT_PASSWORD"))
@@ -60,7 +61,7 @@ def publish_output_spark(average_rssi, average_snr, f_cnts, device_addr, ts):
     json_reading = json.dumps(
         {
             "devaddr": device_addr,
-            "aggregated_data": {"avg_rssi": average_rssi, "avg_snr": average_snr},
+            "aggregated_data": {"avg_temp":average_temp,"avg_hum":average_hum,"avg_rssi": average_rssi, "avg_snr": average_snr},
             "fcnts": f_cnts,
             "timestamps": ts,
             "timestamp_pub": int(time.time() * 1000),
@@ -82,7 +83,14 @@ def parse_json(json_str):
     gtw_snr = data.get("gtw_snr")
     f_cnt = data.get("fcnt")
     ts = int(time.time())
-    return device_addr, (gtw_rssi, gtw_snr, f_cnt, ts)
+    
+    payload = data.get("payload")
+    decode_payload = b64.b64decode(payload).decode('utf-8')
+    payload_data = eval(decode_payload)
+    soil_temp = payload_data[0]
+    soil_hum = payload_data[1]
+    
+    return device_addr,(soil_temp,soil_hum,gtw_rssi,gtw_snr,f_cnt,ts)
 
 
 def process_readings(rdd):
@@ -92,22 +100,23 @@ def process_readings(rdd):
 
     aggregated_data = rdd.map(parse_json).groupByKey()
 
-    device_aggregated_values = aggregated_data.map(
-        lambda x: (
-            x[0],
-            (
-                average([rssi for rssi, _, _, _ in x[1]]),
-                average([snr for _, snr, _, _ in x[1]]),
-                [f_cnt for _, _, f_cnt, _ in x[1]],
-                [ts for _, _, _, ts in x[1]],
-            ),
+    device_aggregated_values = aggregated_data.map(lambda x: (
+        x[0],
+        (
+            average([temp for temp, _, _, _ , _, _ in x[1]]),
+            average([hum for  _, hum, _, _, _, _ in x[1]]),
+            average([rssi for _, _, rssi, _, _, _ in x[1]]),
+            average([snr for  _, _, _, snr, _, _ in x[1]]),
+            [f_cnt for _, _, _, _, f_cnt, _ in x[1]],
+            [ts for _, _, _, _, _,ts in x[1]]
         )
-    )
+    ))
 
     results = device_aggregated_values.collect()
-    # publish output spark
-    for device_addr, (avg_rssi, avg_snr, f_cnts, ts) in results:
-        publish_output_spark(avg_rssi, avg_snr, f_cnts, device_addr, ts)
+
+    #publish output spark
+    for device_addr, (avg_temp, avg_hum, avg_rssi, avg_snr, f_cnts, ts) in results:
+        publish_output_spark(avg_temp, avg_hum, avg_rssi, avg_snr, f_cnts, device_addr, ts)
 
 
 if __name__ == "__main__":
