@@ -1,5 +1,5 @@
 mod e2gw_rpc_client;
-mod e2gw_rpc_server;
+mod e2l_active_directory;
 mod e2l_crypto;
 mod json_structs;
 mod lorawan_structs;
@@ -23,6 +23,7 @@ extern crate serde_json;
 // extern crate elliptic_curve;
 extern crate p256;
 
+use e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto;
 // GET HOSTNAME
 use gethostname::gethostname;
 
@@ -37,10 +38,6 @@ use e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::SysLog;
 // E2L
 use e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::init_rpc_client;
 use e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::E2gwPubInfo;
-
-use e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::edge2_gateway_server::Edge2GatewayServer;
-use e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::MyEdge2GatewayServer;
-use tonic::transport::Server;
 
 use json_structs::filters_json_structs::filter_json::EnvVariables;
 use lorawan_encoding::parser::{parse, AsPhyPayloadBytes, DataHeader, DataPayload, PhyPayload};
@@ -67,7 +64,6 @@ static mut DEBUG: bool = false;
 // E2L modules
 use paho_mqtt as mqtt;
 
-use e2l_crypto::e2l_crypto::E2L_CRYPTO;
 static EDGE_FRAME_ID: u64 = 1;
 static LEGACY_FRAME_ID: u64 = 2;
 static EDGE_FRAME_ID_NOT_PROCESSED: u64 = 3;
@@ -274,15 +270,10 @@ async fn forward(
     }
 
     // GET HOSTNAME
-
-    // let gw_rpc_endpoint_address = local_ip_address::local_ip().unwrap().to_string();
-    // let gw_sys_rpc_endpoint_address = local_ip_address::local_ip().unwrap().to_string();
-    // let gw_frames_rpc_endpoint_address = local_ip_address::local_ip().unwrap().to_string();
     let gw_rpc_endpoint_address: String = gethostname().into_string().unwrap();
     let gw_sys_rpc_endpoint_address: String = gethostname().into_string().unwrap();
     let gw_frames_rpc_endpoint_address: String = gethostname().into_string().unwrap();
     let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
-    let rpc_endpoint = format!("0.0.0.0:{}", gw_rpc_endpoint_port.clone());
 
     // CREATE MQTT TOPIC
     let mqtt_process_topic = mqtt::Topic::new(
@@ -291,19 +282,11 @@ async fn forward(
         mqtt_variables.broker_qos,
     );
     // INIT RPC SERVER
-    let rpc_server = MyEdge2GatewayServer {};
-    let rt = tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
-    info(format!("Starting RPC Server on {}", rpc_endpoint.clone()));
-    let servicer = Server::builder().add_service(Edge2GatewayServer::new(rpc_server));
-
-    thread::spawn(move || {
-        let server_future = servicer.serve(rpc_endpoint.parse().unwrap());
-        rt.block_on(server_future)
-            .expect("RPC Server failed to start");
-    });
+    let e2l_crypto = E2LCrypto::default();
 
     // Compute private ECC key
-    let compressed_public_key = unsafe { E2L_CRYPTO.generate_ecc_keys() };
+    let compressed_public_key = e2l_crypto.compressed_public_key.clone().unwrap();
+    e2l_crypto.start_rpc_server();
 
     // INIT RPC CLIENT
     let rpc_remote_host = dotenv::var("RPC_DM_REMOTE_HOST").unwrap();
@@ -591,7 +574,7 @@ async fn forward(
                                     ));
 
                                     let is_active: bool;
-                                    unsafe { is_active = E2L_CRYPTO.is_active }
+                                    is_active = e2l_crypto.is_active();
                                     if is_active {
                                         // get epoch time
                                         let start = SystemTime::now();
@@ -600,16 +583,13 @@ async fn forward(
                                             .expect("Time went backwards");
 
                                         // Check if enabled E2ED
-                                        let e2ed_enabled: bool;
-                                        unsafe {
-                                            e2ed_enabled = (f_port == DEFAULT_E2L_APP_PORT)
-                                                && E2L_CRYPTO
-                                                    .check_e2ed_enabled(dev_addr_string.clone());
-                                        }
+                                        let e2ed_enabled: bool = (f_port == DEFAULT_E2L_APP_PORT)
+                                            && e2l_crypto
+                                                .check_e2ed_enabled(dev_addr_string.clone());
 
                                         if e2ed_enabled {
                                             unsafe {
-                                                let mqtt_payload_option = E2L_CRYPTO
+                                                let mqtt_payload_option = e2l_crypto
                                                     .get_json_mqtt_payload(
                                                         dev_addr_string.clone(),
                                                         fcnt,

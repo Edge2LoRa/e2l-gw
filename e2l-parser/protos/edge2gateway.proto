@@ -44,8 +44,9 @@ message E2LDeviceInfo {
 message Device{
     string dev_eui = 1;
     string dev_addr = 2;
-    bytes edge_s_enc_key = 3;
-    bytes edge_s_int_key = 4;
+    string assigned_gw = 3;
+    bytes edge_s_enc_key = 4;
+    bytes edge_s_int_key = 5;
 }
 
 message E2LDevicesInfoComplete {
