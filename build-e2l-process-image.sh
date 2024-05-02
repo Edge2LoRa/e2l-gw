@@ -8,4 +8,4 @@ fi
 
 image_tag=$1
 
-docker build -t e2l-process:$image_tag -f e2l-process.Dockerfile ./e2l-process/pyspark_app2/
+docker build -t e2l-process:$image_tag -f e2l-process.Dockerfile ./e2l-process/pyspark_app3/

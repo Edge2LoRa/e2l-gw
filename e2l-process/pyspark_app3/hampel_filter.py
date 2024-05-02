@@ -78,6 +78,11 @@ def hampel_filter(data,window_size,n_sigma):
     #data.show(truncate=False)
 
     print("Received Data :",data.count())
+
+    received_data = data.select("dev_addr", "fcnt", "timestamp").collect()
+    dev_addrs = [row.dev_addr for row in received_data]
+    fcnts = [row.fcnt for row in received_data]
+    ts = [row.timestamp for row in received_data]
     
     #take the outliers from data
     outliers = data.filter("is_outlier")
@@ -91,9 +96,13 @@ def hampel_filter(data,window_size,n_sigma):
         outliers_detected = outliers.select("dev_addr", "fcnt").collect()
         
         # Prepare JSON payload
-        json_outliers = [{"dev_addr": row.dev_addr, "fcnt": row.fcnt} for row in outliers_detected]
+        json_outliers = [{"devaddr": row.dev_addr, "fcnt": row.fcnt} for row in outliers_detected]
         json_payload = {
-            "outliers": json_outliers,
+	        "devaddr":"0036D020",  #in hampel questo è fittizio perchè ho tutta la lista come parametro
+            "aggregated_data": json_outliers,
+            "devaddrs": dev_addrs, #tutti i dev_addrs ricevui  ad ogni batch-interval  sui i quali viene applicato hampel
+	        "fcnts": fcnts,
+            "timestamps": ts,
             "timestamp_pub": int(time.time() * 1000)
         }
         
@@ -113,7 +122,7 @@ def publish_output_spark(payload):
 
     json_reading = json.dumps(payload)
     
-    print("sto publicando:", json_reading)
+   # print("sto publicando:", json_reading)
     client.publish(os.getenv("MQTT_TOPIC_OUTPUT"),json_reading)
 
     client.disconnect()
@@ -180,7 +189,7 @@ if __name__ == "__main__":
         batch_df = batch_df.withColumn("soil_temp", extract_temp(col("payload")))
         
         #select only some data
-        interested_data = batch_df.select("dev_addr","fcnt","timestamp","frequency","gtw_rssi","gtw_snr","soil_temp")
+        interested_data = batch_df.select("dev_eui","dev_addr","fcnt","timestamp","frequency","gtw_rssi","gtw_snr","soil_temp")
 
         #convert the unix format timestamp 
         input_data = interested_data.withColumn("parsed_ts", from_unixtime("timestamp","yyyy-MM-dd HH:mm:ss").cast("timestamp"))

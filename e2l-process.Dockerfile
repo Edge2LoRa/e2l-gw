@@ -10,6 +10,6 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 #Copy the pyspark app into the container
-COPY time-window_aggregation.py .
+COPY hampel_filter.py .
 
-CMD ["spark-submit", "--packages", "org.apache.bahir:spark-streaming-mqtt_2.12:2.4.0", "time-window_aggregation.py"]
+CMD ["spark-submit", "--packages", "org.apache.bahir:spark-streaming-mqtt_2.12:2.4.0", "hampel_filter.py"]
