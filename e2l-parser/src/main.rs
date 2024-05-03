@@ -1,4 +1,5 @@
 mod e2gw_rpc_client;
+mod e2gw_rpc_server;
 mod e2l_active_directory;
 mod e2l_crypto;
 mod json_structs;
@@ -18,7 +19,8 @@ extern crate serde;
 extern crate serde_derive;
 extern crate serde_json;
 
-// extern crate local_ip_address;
+// BASE 64
+use base64::{engine::general_purpose, Engine as _};
 
 // extern crate elliptic_curve;
 extern crate p256;
@@ -167,9 +169,28 @@ fn charge_mqtt_variables() -> MqttVariables {
         broker_port: dotenv::var("BROKER_PORT").unwrap(),
         broker_auth_name: dotenv::var("BROKER_AUTH_USERNAME").unwrap(),
         broker_auth_password: dotenv::var("BROKER_AUTH_PASSWORD").unwrap(),
-        broker_topic: dotenv::var("BROKER_TOPIC").unwrap(),
+        broker_process_topic: dotenv::var("BROKER_PROCESS_TOPIC").unwrap(),
+        broker_handover_topic: dotenv::var("BROKER_HANDOVER_TOPIC").unwrap(),
         broker_qos: dotenv::var("BROKER_QOS").unwrap().parse::<i32>().unwrap(),
     }
+}
+
+fn debug(msg: String) {
+    if false {
+        println!("{}", msg);
+    }
+}
+
+fn info(msg: String) {
+    if true {
+        //         println!("\nINFO: {}\n", msg);
+        println!("INFO: {}", msg);
+    }
+}
+
+fn extract_dev_addr_array(v: Vec<u8>) -> [u8; 4] {
+    let default_array: [u8; 4] = [0, 0, 0, 0];
+    v.try_into().unwrap_or(default_array)
 }
 
 #[tokio::main]
@@ -177,6 +198,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     dotenv::dotenv().ok();
     let env_variables = charge_environment_variables();
 
+    // INIT E2L CRYPTO
+    let e2l_crypto = E2LCrypto::default();
+
+    // Compute private ECC key
+    let compressed_public_key = e2l_crypto.compressed_public_key.clone().unwrap();
+    e2l_crypto.start_rpc_server();
+
+    /*****************
+     * MQTT CLIENT   *
+     *****************/
     // INIT MQTT CLIENT
     info(format!("Init MQTT client & connect to broker..."));
     let mqtt_variables = charge_mqtt_variables();
@@ -189,18 +220,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("Error creating the client: {:?}", err);
         std::process::exit(1);
     });
+
+    // Connection options
     let mut mqtt_conn_opts_builder = mqtt::ConnectOptionsBuilder::new();
     mqtt_conn_opts_builder.user_name(mqtt_variables.broker_auth_name.clone());
     mqtt_conn_opts_builder.password(mqtt_variables.broker_auth_password.clone());
+
+    // Subscribe to HANDOVER TOPIC
+    let handover_base_topic = mqtt_variables.broker_handover_topic.clone();
+    let handover_base_topic_2 = mqtt_variables.broker_handover_topic.clone();
+    mqtt_client.set_message_callback(|_cli, msg| {
+        if let Some(msg) = msg {
+            let topic = msg.topic();
+            let payload_str = msg.payload_str();
+            info(format!("Topic: {} - payload: {}", topic, payload_str));
+        }
+    });
+
     // Connect and wait for it to complete or fail
-    if let Err(e) = mqtt_client
-        .connect(mqtt_conn_opts_builder.finalize())
-        .wait()
-    {
-        println!("Unable to connect: {:?}", e);
-        std::process::exit(1);
-    }
+    mqtt_client.connect_with_callbacks(
+        mqtt_conn_opts_builder.finalize(),
+        move |cli, _msgid| {
+            info(format!("MQTT CONNECTED!"));
+            cli.subscribe(handover_base_topic_2.clone(), mqtt_variables.broker_qos);
+        },
+        |_cli, _msgid, rc| {
+            println!("Connection attempt failed with error code {}.\n", rc);
+        },
+    );
     info(format!("MQTT INIT AND CONNECT COMPLETED!"));
+
+    // CREATE PROCESS MQTT TOPIC
+    let mqtt_process_topic = mqtt::Topic::new(
+        &mqtt_client,
+        mqtt_variables.broker_process_topic,
+        mqtt_variables.broker_qos,
+    );
 
     unsafe {
         DEBUG = env_variables.debug;
@@ -221,45 +276,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ..Default::default()
     };
 
-    forward(
-        &bind_addr,
-        local_port,
-        &remote_host,
-        remote_port,
-        fwinfo,
-        mqtt_client,
-        mqtt_variables,
-    )
-    .await?;
-    Ok(())
-}
-
-fn debug(msg: String) {
-    if false {
-        println!("{}", msg);
-    }
-}
-
-fn info(msg: String) {
-    if true {
-        //         println!("\nINFO: {}\n", msg);
-        println!("INFO: {}", msg);
-    }
-}
-
-fn extract_dev_addr_array(v: Vec<u8>) -> [u8; 4] {
-    let default_array: [u8; 4] = [0, 0, 0, 0];
-    v.try_into().unwrap_or(default_array)
-}
-async fn forward(
-    bind_addr: &str,
-    local_port: i32,
-    remote_host: &str,
-    remote_port: u16,
-    fwinfo: ForwardInfo<'_>,
-    mqtt_client: mqtt::AsyncClient,
-    mqtt_variables: MqttVariables,
-) -> Result<(), Box<dyn std::error::Error>> {
     // GET IGNORE LOG FLAG
     let ignore_logs_str_flag = dotenv::var("IGNORE_LOGS").unwrap();
     let ignore_logs_flag: bool;
@@ -274,19 +290,6 @@ async fn forward(
     let gw_sys_rpc_endpoint_address: String = gethostname().into_string().unwrap();
     let gw_frames_rpc_endpoint_address: String = gethostname().into_string().unwrap();
     let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
-
-    // CREATE MQTT TOPIC
-    let mqtt_process_topic = mqtt::Topic::new(
-        &mqtt_client,
-        mqtt_variables.broker_topic,
-        mqtt_variables.broker_qos,
-    );
-    // INIT RPC SERVER
-    let e2l_crypto = E2LCrypto::default();
-
-    // Compute private ECC key
-    let compressed_public_key = e2l_crypto.compressed_public_key.clone().unwrap();
-    e2l_crypto.start_rpc_server();
 
     // INIT RPC CLIENT
     let rpc_remote_host = dotenv::var("RPC_DM_REMOTE_HOST").unwrap();
@@ -549,7 +552,10 @@ async fn forward(
                         }
                     } else {
                         for packet in data_json.rxpk.iter() {
-                            let data: Vec<u8> = base64::decode(&packet.data).unwrap();
+                            let data: Vec<u8> = general_purpose::STANDARD
+                                .encode(&packet.data)
+                                .as_bytes()
+                                .to_vec();
 
                             let gwmac: String = hex::encode(&to_send[4..12]);
                             debug(format!("Extracted GwMac {:x?}", gwmac));
@@ -588,68 +594,75 @@ async fn forward(
                                                 .check_e2ed_enabled(dev_addr_string.clone());
 
                                         if e2ed_enabled {
-                                            unsafe {
-                                                let mqtt_payload_option = e2l_crypto
-                                                    .get_json_mqtt_payload(
-                                                        dev_addr_string.clone(),
-                                                        fcnt,
-                                                        phy,
-                                                        packet,
-                                                        gwmac,
-                                                    );
-                                                match mqtt_payload_option {
-                                                    Some(mqtt_payload) => {
-                                                        if !ignore_logs_flag {
-                                                            let log_request: tonic::Request<GwLog> =
-                                                                tonic::Request::new(GwLog {
-                                                                    gw_id: gw_rpc_endpoint_address
-                                                                        .clone(),
-                                                                    dev_addr: dev_addr_string
-                                                                        .clone(),
-                                                                    log: format!(
-                                                                "Processed Edge Frame from {}",
-                                                                dev_addr.clone()
-                                                            ),
-                                                                    frame_type: EDGE_FRAME_ID,
-                                                                    fcnt: fcnt as u64,
-                                                                    timetag: mqtt_payload.timestamp
-                                                                        as u64,
-                                                                });
-                                                            rpc_client.gw_log(log_request).await?;
-                                                        }
+                                            let mqtt_payload_option = e2l_crypto
+                                                .get_json_mqtt_payload(
+                                                    dev_addr_string.clone(),
+                                                    fcnt,
+                                                    phy,
+                                                    packet,
+                                                    gwmac,
+                                                );
+                                            match mqtt_payload_option {
+                                                Some(mqtt_payload) => {
+                                                    if !ignore_logs_flag {
+                                                        let log_request: tonic::Request<GwLog> =
+                                                            tonic::Request::new(GwLog {
+                                                                gw_id: gw_rpc_endpoint_address
+                                                                    .clone(),
+                                                                dev_addr: dev_addr_string.clone(),
+                                                                log: format!(
+                                                                    "Processed Edge Frame from {}",
+                                                                    dev_addr.clone()
+                                                                ),
+                                                                frame_type: EDGE_FRAME_ID,
+                                                                fcnt: fcnt as u64,
+                                                                timetag: mqtt_payload.timestamp
+                                                                    as u64,
+                                                            });
+                                                        rpc_client.gw_log(log_request).await?;
+                                                    }
+                                                    unsafe {
                                                         EDGE_FRAMES_NUM = EDGE_FRAMES_NUM + 1;
                                                         EDGE_FRAMES_FCNTS.push(FcntStruct {
                                                             dev_addr: dev_addr_string.clone(),
                                                             fcnt: fcnt as u64,
                                                         });
-                                                        let mqtt_payload_str =
-                                                            serde_json::to_string(&mqtt_payload)
-                                                                .unwrap_or_else(|_| {
-                                                                    "Error".to_string()
-                                                                });
-                                                        let tok: mqtt::DeliveryToken =
-                                                            mqtt_process_topic
-                                                                .publish(mqtt_payload_str);
-                                                        if let Err(e) = tok.wait() {
-                                                            println!(
-                                                                "Error sending message: {:?}",
-                                                                e
-                                                            );
-                                                        }
                                                     }
-                                                    _ => {
-                                                        will_send = false;
-                                                        break;
+                                                    let mqtt_payload_str =
+                                                        serde_json::to_string(&mqtt_payload)
+                                                            .unwrap_or_else(|_| {
+                                                                "Error".to_string()
+                                                            });
+                                                    let tok: mqtt::DeliveryToken =
+                                                        mqtt_process_topic
+                                                            .publish(mqtt_payload_str);
+                                                    if let Err(e) = tok.wait() {
+                                                        println!("Error sending message: {:?}", e);
                                                     }
+                                                }
+                                                _ => {
+                                                    will_send = false;
+                                                    break;
                                                 }
                                             }
                                             will_send = false;
                                         } else {
                                             match f_port {
                                                 port if port == DEFAULT_E2L_APP_PORT => {
-                                                    // SEND LOG
-                                                    if !ignore_logs_flag {
-                                                        let log_request: tonic::Request<GwLog> = tonic::Request::new(GwLog {
+                                                    let mqtt_payload_option = e2l_crypto
+                                                        .get_unassociated_json_mqtt_payload(
+                                                            dev_addr_string.clone(),
+                                                            fcnt,
+                                                            phy,
+                                                            packet,
+                                                            gwmac,
+                                                        );
+
+                                                    match mqtt_payload_option {
+                                                        Some(mqtt_payload) => {
+                                                            // SEND LOG
+                                                            if !ignore_logs_flag {
+                                                                let log_request: tonic::Request<GwLog> = tonic::Request::new(GwLog {
                                                                 gw_id: gw_rpc_endpoint_address.clone(),
                                                                 dev_addr: dev_addr_string.clone(),
                                                                 log: format!(
@@ -660,9 +673,44 @@ async fn forward(
                                                                 fcnt: fcnt as u64,
                                                                 timetag: timetag.as_millis() as u64,
                                                                 });
-                                                        rpc_client.gw_log(log_request).await?;
+                                                                rpc_client
+                                                                    .gw_log(log_request)
+                                                                    .await?;
+                                                            }
+                                                            // TODO: PUBLISH ON OTHER GW TOPIC
+                                                            let gw_id = mqtt_payload.gw_id.clone();
+                                                            let handover_topic = format!(
+                                                                "{}/{}",
+                                                                handover_base_topic, gw_id
+                                                            );
+                                                            let mqtt_handover_topic =
+                                                                mqtt::Topic::new(
+                                                                    &mqtt_client,
+                                                                    handover_topic,
+                                                                    mqtt_variables.broker_qos,
+                                                                );
+                                                            let mqtt_payload_str =
+                                                                serde_json::to_string(
+                                                                    &mqtt_payload,
+                                                                )
+                                                                .unwrap_or_else(|_| {
+                                                                    "Error".to_string()
+                                                                });
+                                                            let tok: mqtt::DeliveryToken =
+                                                                mqtt_handover_topic
+                                                                    .publish(mqtt_payload_str);
+                                                            if let Err(e) = tok.wait() {
+                                                                println!(
+                                                                    "Error sending message: {:?}",
+                                                                    e
+                                                                );
+                                                            }
+                                                        }
+                                                        None => {
+                                                            will_send = false;
+                                                            break;
+                                                        }
                                                     }
-                                                    // TODO: PUBLISH ON OTHER GW TOPIC
                                                     unsafe {
                                                         EDGE_NOT_PROCESSED_FRAMES_NUM =
                                                             EDGE_NOT_PROCESSED_FRAMES_NUM + 1;
@@ -673,6 +721,7 @@ async fn forward(
                                                             },
                                                         );
                                                     }
+                                                    will_send = false;
                                                 }
                                                 port if port == DEFAULT_APP_PORT => {
                                                     match fwinfo.forward_protocol {

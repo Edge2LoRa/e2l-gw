@@ -8,7 +8,8 @@ pub(crate) mod mqtt_structs {
         pub broker_port: String,
         pub broker_auth_name: String,
         pub broker_auth_password: String,
-        pub broker_topic: String,
+        pub broker_process_topic: String,
+        pub broker_handover_topic: String,
         pub broker_qos: i32,
     }
 

@@ -3,17 +3,10 @@ static _SUM_ID: u8 = 2;
 static _MIN_ID: u8 = 3;
 static _MAX_ID: u8 = 4;
 pub(crate) mod e2l_crypto {
-    // RPC
-    use self::edge2_gateway_server::Edge2Gateway;
-    use crate::e2l_crypto::e2l_crypto::e2l_crypto::edge2_gateway_server::Edge2GatewayServer;
-    use std::sync::{Arc, Mutex, MutexGuard};
-    use std::thread;
-
+    use base64::{engine::general_purpose, Engine as _};
     use tonic::transport::Server;
-    use tonic::{Request, Response, Status};
-
-    // Include the generated proto file
-    tonic::include_proto!("edge2gateway");
+    // MUTEX
+    use std::sync::{Arc, Mutex, MutexGuard};
 
     // Crypto
     extern crate p256;
@@ -23,7 +16,7 @@ pub(crate) mod e2l_crypto {
 
     use lorawan_encoding::default_crypto::DefaultFactory;
     use lorawan_encoding::keys::AES128;
-    use lorawan_encoding::parser::EncryptedDataPayload;
+    use lorawan_encoding::parser::{AsPhyPayloadBytes, EncryptedDataPayload};
     use p256::elliptic_curve::point::AffineCoordinates;
     use p256::elliptic_curve::point::NonIdentity;
     use p256::elliptic_curve::rand_core::OsRng;
@@ -34,13 +27,20 @@ pub(crate) mod e2l_crypto {
     use sha2::Digest;
     use sha2::Sha256;
 
+    use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::edge2_gateway_server::Edge2GatewayServer;
+    // RPC
+    use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::{
+        Device, E2lData, Edge2GatewayServerStruct, GwResponse,
+    };
+    use std::thread;
+
     use crate::lorawan_structs::lorawan_structs::lora_structs::RxpkContent;
-    use crate::mqtt_client::mqtt_structs::mqtt_structs::{MqttJson. UnassociatedMqttJson};
+    use crate::mqtt_client::mqtt_structs::mqtt_structs::{MqttJson, UnassociatedMqttJson};
 
     // ACTIVE DIRECTORY
-    use crate::{e2l_active_directory::e2l_active_directory::e2l_active_directory::{
+    use crate::e2l_active_directory::e2l_active_directory::e2l_active_directory::{
         AssociatedDevInfo, E2LActiveDirectory, UnassociatedDevInfo,
-    }, mqtt_client::mqtt_structs::mqtt_structs::UnassociatedMqttJson};
+    };
     use gethostname::gethostname;
 
     static AVG_ID: u8 = 1;
@@ -120,7 +120,7 @@ pub(crate) mod e2l_crypto {
             return return_value;
         }
 
-        fn set_active_private(&self, is_active: bool) {
+        pub fn set_active(&self, is_active: bool) {
             let mut aux = self.is_active.lock().expect("Could not lock");
             *aux = is_active;
         }
@@ -137,7 +137,7 @@ pub(crate) mod e2l_crypto {
            @param dev_public_key_compressed: the compressed public key of the device
            @return: the g_gw_ed to send to the AS
         */
-        fn handle_ed_pub_info_private(
+        pub fn handle_ed_pub_info(
             &self,
             dev_eui: String,
             dev_addr: String,
@@ -274,7 +274,7 @@ pub(crate) mod e2l_crypto {
                                 gtw_channel: packet.chan.unwrap(),
                                 gtw_rssi: packet.rssi.unwrap(),
                                 gtw_snr: packet.lsnr.unwrap(),
-                                payload: base64::encode(frame_payload),
+                                payload: general_purpose::STANDARD.encode(frame_payload),
                             });
                         }
                         _ => {
@@ -315,14 +315,14 @@ pub(crate) mod e2l_crypto {
                         gtw_channel: packet.chan.unwrap(),
                         gtw_rssi: packet.rssi.unwrap(),
                         gtw_snr: packet.lsnr.unwrap(),
-                        encrypted_payload: base64::encode(""),
+                        encrypted_payload: general_purpose::STANDARD.encode(phy.as_bytes()),
                     });
                 }
                 None => return None,
             }
         }
 
-        fn remove_e2device_private(&self, dev_addr: String) -> E2lData {
+        pub fn remove_e2device(&self, dev_addr: String) -> E2lData {
             let mut active_directory: MutexGuard<E2LActiveDirectory> =
                 self.active_directory_mutex.lock().unwrap();
             if active_directory.is_associated_dev(&dev_addr.clone()) {
@@ -342,7 +342,7 @@ pub(crate) mod e2l_crypto {
             return response;
         }
 
-        fn add_devices_private(&self, device_list: Vec<Device>) -> GwResponse {
+        pub fn add_devices(&self, device_list: Vec<Device>) -> GwResponse {
             let device_list_len = device_list.len();
             for device in device_list {
                 // Create fake priv pub device key
@@ -390,97 +390,19 @@ pub(crate) mod e2l_crypto {
         }
     }
 
-    #[tonic::async_trait]
-    impl Edge2Gateway for E2LCrypto {
-        async fn handle_ed_pub_info(
-            &self,
-            request: Request<EdPubInfo>,
-        ) -> Result<Response<GwInfo>, Status> {
-            let inner_request = request.into_inner();
-            let dev_eui = inner_request.dev_eui;
-            let dev_addr = inner_request.dev_addr;
-            let g_as_ed_compressed = inner_request.g_as_ed;
-            let dev_public_key_compressed = inner_request.dev_public_key;
-            let g_gw_ed_compressed = self.handle_ed_pub_info_private(
-                dev_eui,
-                dev_addr,
-                g_as_ed_compressed,
-                dev_public_key_compressed,
-            );
-            // Check if the result is empty
-            let reply: GwInfo;
-            if g_gw_ed_compressed.is_empty() {
-                reply = GwInfo {
-                    status_code: -1,
-                    g_gw_ed: g_gw_ed_compressed,
-                };
-            } else {
-                reply = GwInfo {
-                    status_code: 0,
-                    g_gw_ed: g_gw_ed_compressed,
-                };
-            }
-            Ok(Response::new(reply))
-        }
-
-        async fn update_aggregation_params(
-            &self,
-            _request: Request<AggregationParams>,
-        ) -> Result<Response<GwResponse>, Status> {
-            let response = GwResponse {
-                status_code: 0,
-                message: "Parameters Updated!".to_string(),
-            };
-            Ok(Response::new(response))
-        }
-
-        async fn remove_e2device(
-            &self,
-            request: Request<E2lDeviceInfo>,
-        ) -> Result<Response<E2lData>, Status> {
-            let inner_request = request.into_inner();
-            let dev_addr = inner_request.dev_addr;
-            let response = self.remove_e2device_private(dev_addr);
-            Ok(Response::new(response))
-        }
-
-        async fn add_devices(
-            &self,
-            request: Request<E2lDevicesInfoComplete>,
-        ) -> Result<Response<GwResponse>, Status> {
-            let inner_request = request.into_inner();
-            let device_list = inner_request.device_list;
-            let response = self.add_devices_private(device_list);
-            Ok(Response::new(response))
-        }
-
-        async fn set_active(
-            &self,
-            request: Request<ActiveFlag>,
-        ) -> Result<Response<GwResponse>, Status> {
-            let inner_request = request.into_inner();
-            let is_active = inner_request.is_active;
-            self.set_active_private(is_active);
-            let response = GwResponse {
-                status_code: 0,
-                message: "Parameters Updated!".to_string(),
-            };
-            Ok(Response::new(response))
-        }
-    }
-
     impl E2LCrypto {
-        pub fn start_rpc_server(self) {
-            let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
-            let rpc_endpoint = format!("0.0.0.0:{}", gw_rpc_endpoint_port.clone());
-            let rt = tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
-            let servicer = Server::builder().add_service(Edge2GatewayServer::new(self));
+        pub fn start_rpc_server(&self) {
+            // let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
+            // let rpc_endpoint = format!("0.0.0.0:{}", gw_rpc_endpoint_port.clone());
+            // let rt = tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
+            // let rpc_server = Edge2GatewayServerStruct::new(self);
+            // let servicer = Server::builder().add_service(Edge2GatewayServer::new(rpc_server));
 
-            thread::spawn(move || {
-                let server_future = servicer.serve(rpc_endpoint.parse().unwrap());
-                rt.block_on(server_future)
-                    .expect("RPC Server failed to start");
-            });
+            // thread::spawn(move || {
+            //     let server_future = servicer.serve(rpc_endpoint.parse().unwrap());
+            //     rt.block_on(server_future)
+            //         .expect("RPC Server failed to start");
+            // });
         }
     }
 }
