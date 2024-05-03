@@ -45,6 +45,42 @@ pub(crate) mod mqtt_structs {
             }
         }
     }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct UnassociatedMqttJson {
+        pub dev_eui: String,
+        pub dev_addr: String,
+        pub gw_id: String,
+        pub fcnt: u16,
+        pub timestamp: u32,
+        pub frequency: f32,
+        pub data_rate: String,
+        pub coding_rate: String,
+        pub gtw_id: String,
+        pub gtw_channel: u32,
+        pub gtw_rssi: i32,
+        pub gtw_snr: f32,
+        pub encrypted_payload: String,
+    }
+    impl Default for UnassociatedMqttJson {
+        fn default() -> Self {
+            UnassociatedMqttJson {
+                dev_eui: "".to_string(),
+                dev_addr: "".to_string(),
+                gw_id: "".to_string(),
+                fcnt: 0,
+                timestamp: 0,
+                frequency: 868.1,
+                data_rate: "SF7BW125".to_string(),
+                coding_rate: "4/5".to_string(),
+                gtw_id: "".to_string(),
+                gtw_channel: 0,
+                gtw_rssi: 0,
+                gtw_snr: 0.0,
+                encrypted_payload: "".to_string(),
+            }
+        }
+    }
     // #[derive(Debug, Serialize, Deserialize)]
     // pub struct MqttJson {
     //     pub index: u64,

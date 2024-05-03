@@ -35,12 +35,12 @@ pub(crate) mod e2l_crypto {
     use sha2::Sha256;
 
     use crate::lorawan_structs::lorawan_structs::lora_structs::RxpkContent;
-    use crate::mqtt_client::mqtt_structs::mqtt_structs::MqttJson;
+    use crate::mqtt_client::mqtt_structs::mqtt_structs::{MqttJson. UnassociatedMqttJson};
 
     // ACTIVE DIRECTORY
-    use crate::e2l_active_directory::e2l_active_directory::e2l_active_directory::{
-        AssociatedDevInfo, E2LActiveDirectory,
-    };
+    use crate::{e2l_active_directory::e2l_active_directory::e2l_active_directory::{
+        AssociatedDevInfo, E2LActiveDirectory, UnassociatedDevInfo,
+    }, mqtt_client::mqtt_structs::mqtt_structs::UnassociatedMqttJson};
     use gethostname::gethostname;
 
     static AVG_ID: u8 = 1;
@@ -287,6 +287,41 @@ pub(crate) mod e2l_crypto {
             }
         }
 
+        pub fn get_unassociated_json_mqtt_payload(
+            &self,
+            dev_addr: String,
+            fcnt: u16,
+            phy: EncryptedDataPayload<Vec<u8>, DefaultFactory>,
+            packet: &RxpkContent,
+            gwmac: String,
+        ) -> Option<UnassociatedMqttJson> {
+            let active_directory: MutexGuard<E2LActiveDirectory> =
+                self.active_directory_mutex.lock().unwrap();
+            let dev_info_option: Option<&UnassociatedDevInfo> =
+                active_directory.get_unassociated_dev(&dev_addr.clone());
+            match dev_info_option {
+                Some(dev_info) => {
+                    // GET KEYS
+                    return Some(UnassociatedMqttJson {
+                        dev_eui: dev_info.dev_eui.clone(),
+                        dev_addr: dev_info.dev_addr.clone(),
+                        gw_id: dev_info.e2gw_id.clone(),
+                        fcnt: fcnt,
+                        timestamp: packet.tmst,
+                        frequency: packet.freq,
+                        data_rate: packet.datr.clone(),
+                        coding_rate: packet.codr.clone(),
+                        gtw_id: gwmac,
+                        gtw_channel: packet.chan.unwrap(),
+                        gtw_rssi: packet.rssi.unwrap(),
+                        gtw_snr: packet.lsnr.unwrap(),
+                        encrypted_payload: base64::encode(""),
+                    });
+                }
+                None => return None,
+            }
+        }
+
         fn remove_e2device_private(&self, dev_addr: String) -> E2lData {
             let mut active_directory: MutexGuard<E2LActiveDirectory> =
                 self.active_directory_mutex.lock().unwrap();
@@ -435,7 +470,7 @@ pub(crate) mod e2l_crypto {
     }
 
     impl E2LCrypto {
-        pub fn start_rpc_server(&self) {
+        pub fn start_rpc_server(self) {
             let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
             let rpc_endpoint = format!("0.0.0.0:{}", gw_rpc_endpoint_port.clone());
             let rt = tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");

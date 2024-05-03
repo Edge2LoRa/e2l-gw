@@ -645,45 +645,11 @@ async fn forward(
                                             }
                                             will_send = false;
                                         } else {
-                                            match fwinfo.forward_protocol {
-                                                ForwardProtocols::UDP => {
-                                                    debug(format!(
-                                                        "Forwarding to {:x?}",
-                                                        fwinfo.forward_host
-                                                    ));
-
-                                                    if f_port == DEFAULT_APP_PORT {
-                                                        debug(format!(
-                                                            "Forwarding Legacy Frame to {}",
-                                                            dev_addr.clone()
-                                                        ));
-
-                                                        if !ignore_logs_flag {
-                                                            let log_request: tonic::Request<GwLog> =
-                                                            tonic::Request::new(GwLog {
-                                                                gw_id: gw_rpc_endpoint_address
-                                                                    .clone(),
-                                                                dev_addr: dev_addr_string.clone(),
-                                                                log: format!("Received Legacy Frame from {}", dev_addr.clone()),
-                                                                frame_type: LEGACY_FRAME_ID,
-                                                                fcnt: fcnt as u64,
-                                                                timetag: timetag.as_millis() as u64,
-                                                            });
-                                                            rpc_client.gw_log(log_request).await?;
-                                                        }
-                                                        unsafe {
-                                                            LEGACY_FRAMES_NUM =
-                                                                LEGACY_FRAMES_NUM + 1;
-                                                            LEGACY_FRAMES_FCNTS.push(FcntStruct {
-                                                                dev_addr: dev_addr_string.clone(),
-                                                                fcnt: fcnt as u64,
-                                                            });
-                                                        }
-                                                    } else {
-                                                        if f_port == DEFAULT_E2L_APP_PORT {
-                                                            // SEND LOG
-                                                            if !ignore_logs_flag {
-                                                                let log_request: tonic::Request<GwLog> = tonic::Request::new(GwLog {
+                                            match f_port {
+                                                port if port == DEFAULT_E2L_APP_PORT => {
+                                                    // SEND LOG
+                                                    if !ignore_logs_flag {
+                                                        let log_request: tonic::Request<GwLog> = tonic::Request::new(GwLog {
                                                                 gw_id: gw_rpc_endpoint_address.clone(),
                                                                 dev_addr: dev_addr_string.clone(),
                                                                 log: format!(
@@ -694,24 +660,63 @@ async fn forward(
                                                                 fcnt: fcnt as u64,
                                                                 timetag: timetag.as_millis() as u64,
                                                                 });
+                                                        rpc_client.gw_log(log_request).await?;
+                                                    }
+                                                    // TODO: PUBLISH ON OTHER GW TOPIC
+                                                    unsafe {
+                                                        EDGE_NOT_PROCESSED_FRAMES_NUM =
+                                                            EDGE_NOT_PROCESSED_FRAMES_NUM + 1;
+                                                        EDGE_NOT_PROCESSED_FRAMES_FCNTS.push(
+                                                            FcntStruct {
+                                                                dev_addr: dev_addr_string.clone(),
+                                                                fcnt: fcnt as u64,
+                                                            },
+                                                        );
+                                                    }
+                                                }
+                                                port if port == DEFAULT_APP_PORT => {
+                                                    match fwinfo.forward_protocol {
+                                                        ForwardProtocols::UDP => {
+                                                            debug(format!(
+                                                                "Forwarding to {:x?}",
+                                                                fwinfo.forward_host
+                                                            ));
+
+                                                            debug(format!(
+                                                                "Forwarding Legacy Frame to {}",
+                                                                dev_addr.clone()
+                                                            ));
+
+                                                            if !ignore_logs_flag {
+                                                                let log_request: tonic::Request<GwLog> =
+                                                            tonic::Request::new(GwLog {
+                                                                gw_id: gw_rpc_endpoint_address
+                                                                    .clone(),
+                                                                dev_addr: dev_addr_string.clone(),
+                                                                log: format!("Received Legacy Frame from {}", dev_addr.clone()),
+                                                                frame_type: LEGACY_FRAME_ID,
+                                                                fcnt: fcnt as u64,
+                                                                timetag: timetag.as_millis() as u64,
+                                                            });
                                                                 rpc_client
                                                                     .gw_log(log_request)
                                                                     .await?;
                                                             }
                                                             unsafe {
-                                                                EDGE_NOT_PROCESSED_FRAMES_NUM =
-                                                                    EDGE_NOT_PROCESSED_FRAMES_NUM
-                                                                        + 1;
-                                                                EDGE_NOT_PROCESSED_FRAMES_FCNTS
-                                                                    .push(FcntStruct {
+                                                                LEGACY_FRAMES_NUM =
+                                                                    LEGACY_FRAMES_NUM + 1;
+                                                                LEGACY_FRAMES_FCNTS.push(
+                                                                    FcntStruct {
                                                                         dev_addr: dev_addr_string
                                                                             .clone(),
                                                                         fcnt: fcnt as u64,
-                                                                    });
+                                                                    },
+                                                                );
                                                             }
-                                                        }
+                                                        } // _ => panic!("Forwarding protocol not implemented!"),
                                                     }
-                                                } // _ => panic!("Forwarding protocol not implemented!"),
+                                                }
+                                                _ => {}
                                             }
                                         }
                                     } else {

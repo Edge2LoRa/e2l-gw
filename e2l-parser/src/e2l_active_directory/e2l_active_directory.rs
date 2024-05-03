@@ -5,9 +5,9 @@ pub(crate) mod e2l_active_directory {
     use std::collections::HashMap;
 
     pub struct UnassociatedDevInfo {
-        dev_eui: String,
-        dev_addr: String,
-        e2gw_id: String,
+        pub dev_eui: String,
+        pub dev_addr: String,
+        pub e2gw_id: String,
     }
 
     pub struct AssociatedDevInfo {
