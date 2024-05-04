@@ -10,7 +10,6 @@ pub(crate) mod e2l_crypto {
     // Crypto
     extern crate p256;
     extern crate serde_json;
-
     use gethostname::gethostname;
     use std::ops::Mul;
 
@@ -51,6 +50,7 @@ pub(crate) mod e2l_crypto {
         pub compressed_public_key: Option<Box<[u8]>>,
     }
 
+    // STATIC FUNCTIONS
     impl E2LCrypto {
         /*
            @brief: This function computes the private/public ecc key pair of the GW
@@ -103,7 +103,10 @@ pub(crate) mod e2l_crypto {
 
             return return_value;
         }
+    }
 
+    //
+    impl E2LCrypto {
         pub fn set_active(&self, is_active: bool) {
             let mut aux = self.is_active.lock().expect("Could not lock");
             *aux = is_active;
@@ -374,6 +377,12 @@ pub(crate) mod e2l_crypto {
             };
             println!("INFO: ADDED {} DEVICES", device_list_len);
             return response;
+        }
+
+        pub fn handover_callback(&self, topic: String, payload_str: String) -> Option<String> {
+            println!("Topic: {:?}", topic);
+            println!("Payload: {:?}", payload_str);
+            return Some("".to_string());
         }
     }
 

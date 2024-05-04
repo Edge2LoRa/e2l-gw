@@ -3,6 +3,7 @@ mod e2gw_rpc_server;
 mod e2l_active_directory;
 mod e2l_crypto;
 mod e2l_module;
+mod e2l_mqtt_client;
 mod json_structs;
 mod lorawan_structs;
 mod mqtt_client;

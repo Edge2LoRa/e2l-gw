@@ -5,6 +5,7 @@ pub(crate) mod e2l_module {
     };
     use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::edge2_gateway_server::Edge2GatewayServer;
     use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::Edge2GatewayServerStruct;
+    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::E2LMqttClient;
     use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
     use crate::lorawan_structs::lorawan_structs::ForwardProtocols;
     use crate::{
@@ -19,7 +20,6 @@ pub(crate) mod e2l_module {
     use lorawan_encoding::parser::{
         parse, AsPhyPayloadBytes, DataHeader, DataPayload, EncryptedDataPayload, PhyPayload,
     };
-    use paho_mqtt as mqtt;
     use rand::Rng;
     use std::collections::HashMap;
     use std::time::Duration;
@@ -84,10 +84,6 @@ pub(crate) mod e2l_module {
         hostname: Arc<Mutex<String>>,
         fwinfo: Arc<Mutex<ForwardInfo>>,
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
-        mqtt_client: mqtt::AsyncClient,
-        mqtt_process_topic: String,
-        mqtt_handover_base_topic: String,
-        mqtt_qos: i32,
         rpc_client: Arc<Mutex<Edge2ApplicationServerClient<Channel>>>,
     }
 
@@ -261,11 +257,13 @@ pub(crate) mod e2l_module {
                 }
             });
         }
+
         async fn handle_data_payload(
             &self,
             phy: EncryptedDataPayload<Vec<u8>, DefaultFactory>,
             packet: &RxpkContent,
             gwmac: String,
+            mqtt_client: &E2LMqttClient,
             ignore_logs_flag: bool,
         ) -> Option<bool> {
             let mut will_send: bool = false;
@@ -338,16 +336,7 @@ pub(crate) mod e2l_module {
                             }
                             let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                 .unwrap_or_else(|_| "Error".to_string());
-                            let mqtt_process_topic = mqtt::Topic::new(
-                                &self.mqtt_client,
-                                self.mqtt_process_topic.clone(),
-                                self.mqtt_qos,
-                            );
-                            let tok: mqtt::DeliveryToken =
-                                mqtt_process_topic.publish(mqtt_payload_str);
-                            if let Err(e) = tok.wait() {
-                                println!("Error sending message: {:?}", e);
-                            }
+                            mqtt_client.publish_to_process(mqtt_payload_str.clone());
                         }
                         _ => {
                             return None;
@@ -395,20 +384,9 @@ pub(crate) mod e2l_module {
                                     }
                                     // TODO: PUBLISH ON OTHER GW TOPIC
                                     let gw_id = mqtt_payload.gw_id.clone();
-                                    let handover_topic =
-                                        format!("{}/{}", self.mqtt_handover_base_topic, gw_id);
-                                    let mqtt_handover_topic = mqtt::Topic::new(
-                                        &self.mqtt_client,
-                                        handover_topic,
-                                        self.mqtt_qos,
-                                    );
                                     let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                         .unwrap_or_else(|_| "Error".to_string());
-                                    let tok: mqtt::DeliveryToken =
-                                        mqtt_handover_topic.publish(mqtt_payload_str);
-                                    if let Err(e) = tok.wait() {
-                                        println!("Error sending message: {:?}", e);
-                                    }
+                                    mqtt_client.publish_to_handover(gw_id, mqtt_payload_str);
                                 }
                                 None => {
                                     return None;
@@ -491,50 +469,6 @@ pub(crate) mod e2l_module {
             dotenv::dotenv().ok();
             let env_variables: EnvVariables = Self::charge_environment_variables();
             /*****************
-             * MQTT CLIENT   *
-             *****************/
-            Self::info(format!("Init MQTT client & connect to broker..."));
-            let mqtt_variables = Self::charge_mqtt_variables();
-            let mqtt_client: mqtt::AsyncClient = mqtt::AsyncClient::new(format!(
-                "{}:{}",
-                mqtt_variables.broker_url.clone(),
-                mqtt_variables.broker_port.clone()
-            ))
-            .unwrap_or_else(|err| {
-                println!("Error creating the client: {:?}", err);
-                std::process::exit(1);
-            });
-
-            // Connection options
-            let mut mqtt_conn_opts_builder = mqtt::ConnectOptionsBuilder::new();
-            mqtt_conn_opts_builder.user_name(mqtt_variables.broker_auth_name.clone());
-            mqtt_conn_opts_builder.password(mqtt_variables.broker_auth_password.clone());
-
-            // Subscribe to HANDOVER TOPIC
-            let handover_base_topic = mqtt_variables.broker_handover_topic.clone();
-            let handover_base_topic_2 = mqtt_variables.broker_handover_topic.clone();
-            mqtt_client.set_message_callback(|_cli, msg| {
-                if let Some(msg) = msg {
-                    let topic = msg.topic();
-                    let payload_str = msg.payload_str();
-                    Self::info(format!("Topic: {} - payload: {}", topic, payload_str));
-                }
-            });
-
-            // Connect and wait for it to complete or fail
-            mqtt_client.connect_with_callbacks(
-                mqtt_conn_opts_builder.finalize(),
-                move |cli, _msgid| {
-                    Self::info(format!("MQTT CONNECTED!"));
-                    cli.subscribe(handover_base_topic_2.clone(), mqtt_variables.broker_qos);
-                },
-                |_cli, _msgid, rc| {
-                    println!("Connection attempt failed with error code {}.\n", rc);
-                },
-            );
-            Self::info(format!("MQTT INIT AND CONNECT COMPLETED!"));
-
-            /*****************
              * ENV VARIABLES *
              *****************/
             let remote_port: u16 = env_variables.remote_port.parse().unwrap();
@@ -560,18 +494,10 @@ pub(crate) mod e2l_module {
              */
             let e2l_crypto = E2LCrypto::new(hostname.clone());
             let e2l_crypto_arc = Arc::new(Mutex::new(e2l_crypto));
-            /*
-             * RPC SERVER
-             */
-
             E2LModule {
                 hostname: Arc::new(Mutex::new(hostname.clone())),
                 fwinfo: Arc::new(Mutex::new(fwinfo)),
                 e2l_crypto: e2l_crypto_arc,
-                mqtt_client: mqtt_client,
-                mqtt_process_topic: mqtt_variables.broker_process_topic,
-                mqtt_handover_base_topic: handover_base_topic,
-                mqtt_qos: mqtt_variables.broker_qos,
                 rpc_client: Arc::new(Mutex::new(rpc_client)),
             }
         }
@@ -585,6 +511,16 @@ pub(crate) mod e2l_module {
             } else {
                 ignore_logs_flag = false;
             }
+            /**************************
+             * MQTT BROKER CONNECTION *
+             **************************/
+            /*****************
+             * MQTT CLIENT   *
+             *****************/
+
+            let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
+            let mut mqtt_client = E2LMqttClient::new(mqtt_variables, Arc::clone(&self.e2l_crypto));
+            mqtt_client.run().await;
             /*****************
              * RPC SERVER    *
              *****************/
@@ -824,6 +760,7 @@ pub(crate) mod e2l_module {
                                                     phy,
                                                     packet,
                                                     gwmac,
+                                                    &mqtt_client,
                                                     ignore_logs_flag,
                                                 )
                                                 .await;
