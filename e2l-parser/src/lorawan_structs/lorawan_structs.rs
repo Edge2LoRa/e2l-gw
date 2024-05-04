@@ -75,16 +75,16 @@ pub enum ForwardProtocols {
 }
 
 #[derive(Debug, Clone)]
-pub struct ForwardInfo<'a> {
-    pub forward_host: &'a str,
+pub struct ForwardInfo {
+    pub forward_host: String,
     pub port: u16,
     pub forward_protocol: ForwardProtocols,
 }
 
-impl<'a> Default for ForwardInfo<'a> {
+impl Default for ForwardInfo {
     fn default() -> Self {
         ForwardInfo {
-            forward_host: "127.0.0.1",
+            forward_host: format!("127.0.0.1"),
             forward_protocol: ForwardProtocols::UDP,
             port: 1681,
         }

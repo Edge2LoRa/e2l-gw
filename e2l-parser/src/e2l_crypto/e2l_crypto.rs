@@ -1,10 +1,9 @@
-static AVG_ID: u8 = 1;
+static _AVG_ID: u8 = 1;
 static _SUM_ID: u8 = 2;
 static _MIN_ID: u8 = 3;
 static _MAX_ID: u8 = 4;
 pub(crate) mod e2l_crypto {
     use base64::{engine::general_purpose, Engine as _};
-    use tonic::transport::Server;
     // MUTEX
     use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -12,6 +11,7 @@ pub(crate) mod e2l_crypto {
     extern crate p256;
     extern crate serde_json;
 
+    use gethostname::gethostname;
     use std::ops::Mul;
 
     use lorawan_encoding::default_crypto::DefaultFactory;
@@ -27,13 +27,7 @@ pub(crate) mod e2l_crypto {
     use sha2::Digest;
     use sha2::Sha256;
 
-    use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::edge2_gateway_server::Edge2GatewayServer;
-    // RPC
-    use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::{
-        Device, E2lData, Edge2GatewayServerStruct, GwResponse,
-    };
-    use std::thread;
-
+    use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::{Device, E2lData, GwResponse};
     use crate::lorawan_structs::lorawan_structs::lora_structs::RxpkContent;
     use crate::mqtt_client::mqtt_structs::mqtt_structs::{MqttJson, UnassociatedMqttJson};
 
@@ -41,12 +35,6 @@ pub(crate) mod e2l_crypto {
     use crate::e2l_active_directory::e2l_active_directory::e2l_active_directory::{
         AssociatedDevInfo, E2LActiveDirectory, UnassociatedDevInfo,
     };
-    use gethostname::gethostname;
-
-    static AVG_ID: u8 = 1;
-    static SUM_ID: u8 = 2;
-    static MIN_ID: u8 = 3;
-    static MAX_ID: u8 = 4;
 
     pub struct E2LCrypto {
         pub gw_id: String,
@@ -54,8 +42,6 @@ pub(crate) mod e2l_crypto {
         pub public_key: Option<P256PublicKey<p256::NistP256>>,
         pub compressed_public_key: Option<Box<[u8]>>,
         pub active_directory_mutex: Arc<Mutex<E2LActiveDirectory>>,
-        pub aggregation_function: u8,
-        pub window_size: usize,
         is_active: Arc<Mutex<bool>>,
     }
 
@@ -104,16 +90,14 @@ pub(crate) mod e2l_crypto {
         /*
            @brief: This function return a new E2LCrypto object
         */
-        pub fn new() -> Self {
+        pub fn new(hostname: String) -> Self {
             let key_info = Self::generate_ecc_keys();
             let return_value = E2LCrypto {
-                gw_id: gethostname().into_string().unwrap(),
+                gw_id: hostname,
                 private_key: key_info.private_key,
                 public_key: key_info.public_key,
                 compressed_public_key: key_info.compressed_public_key,
                 active_directory_mutex: Arc::new(Mutex::new(E2LActiveDirectory::new())),
-                aggregation_function: AVG_ID,
-                window_size: 10,
                 is_active: Arc::new(Mutex::new(false)),
             };
 
@@ -123,10 +107,14 @@ pub(crate) mod e2l_crypto {
         pub fn set_active(&self, is_active: bool) {
             let mut aux = self.is_active.lock().expect("Could not lock");
             *aux = is_active;
+            std::mem::drop(aux);
         }
 
         pub fn is_active(&self) -> bool {
-            self.is_active.lock().unwrap().clone()
+            let mutex = self.is_active.lock().expect("Could not lock!");
+            let is_active = *mutex;
+            std::mem::drop(mutex);
+            return is_active;
         }
 
         /*
@@ -207,6 +195,7 @@ pub(crate) mod e2l_crypto {
                 edge_s_enc_key,
                 edge_s_int_key,
             );
+            std::mem::drop(active_directory);
             println!("Added dev addr: {:?} to active directory.", dev_addr);
 
             let g_gw_ed = Self::scalar_point_multiplication(
@@ -225,7 +214,9 @@ pub(crate) mod e2l_crypto {
         pub fn check_e2ed_enabled(&self, dev_addr: String) -> bool {
             let active_directory: MutexGuard<E2LActiveDirectory> =
                 self.active_directory_mutex.lock().expect("Could not lock");
-            active_directory.is_associated_dev(&dev_addr)
+            let ret = active_directory.is_associated_dev(&dev_addr);
+            std::mem::drop(active_directory);
+            return ret;
         }
 
         /*
@@ -247,7 +238,7 @@ pub(crate) mod e2l_crypto {
             gwmac: String,
         ) -> Option<MqttJson> {
             let active_directory: MutexGuard<E2LActiveDirectory> =
-                self.active_directory_mutex.lock().unwrap();
+                self.active_directory_mutex.lock().expect("Could not lock!");
             let dev_info_option: Option<&AssociatedDevInfo> =
                 active_directory.get_associated_dev(&dev_addr.clone());
             match dev_info_option {
@@ -330,6 +321,7 @@ pub(crate) mod e2l_crypto {
             } else {
                 active_directory.remove_unassociated_dev(&dev_addr.clone());
             }
+            std::mem::drop(active_directory);
             println!("Device removed: {:?}", dev_addr);
             let response = E2lData {
                 status_code: -1,
@@ -344,6 +336,8 @@ pub(crate) mod e2l_crypto {
 
         pub fn add_devices(&self, device_list: Vec<Device>) -> GwResponse {
             let device_list_len = device_list.len();
+            let mut active_directory: MutexGuard<E2LActiveDirectory> =
+                self.active_directory_mutex.lock().unwrap();
             for device in device_list {
                 // Create fake priv pub device key
                 let dev_fake_private_key = Some(P256SecretKey::random(&mut OsRng));
@@ -360,8 +354,6 @@ pub(crate) mod e2l_crypto {
                 let edge_s_int_key = AES128::from(edge_s_int_key_bytes.clone());
 
                 let assigned_gw = device.assigned_gw;
-                let mut active_directory: MutexGuard<E2LActiveDirectory> =
-                    self.active_directory_mutex.lock().unwrap();
                 if assigned_gw != self.gw_id {
                     active_directory.add_unassociated_dev(dev_eui, dev_addr, assigned_gw);
                 } else {
@@ -374,35 +366,20 @@ pub(crate) mod e2l_crypto {
                     );
                 }
             }
+            std::mem::drop(active_directory);
 
             let response = GwResponse {
                 status_code: 0,
                 message: "Devices added".to_string(),
             };
-            println!("ADDED {} DEVICES", device_list_len);
+            println!("INFO: ADDED {} DEVICES", device_list_len);
             return response;
         }
     }
 
     impl Default for E2LCrypto {
         fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    impl E2LCrypto {
-        pub fn start_rpc_server(&self) {
-            // let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
-            // let rpc_endpoint = format!("0.0.0.0:{}", gw_rpc_endpoint_port.clone());
-            // let rt = tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
-            // let rpc_server = Edge2GatewayServerStruct::new(self);
-            // let servicer = Server::builder().add_service(Edge2GatewayServer::new(rpc_server));
-
-            // thread::spawn(move || {
-            //     let server_future = servicer.serve(rpc_endpoint.parse().unwrap());
-            //     rt.block_on(server_future)
-            //         .expect("RPC Server failed to start");
-            // });
+            Self::new(gethostname().into_string().unwrap())
         }
     }
 }

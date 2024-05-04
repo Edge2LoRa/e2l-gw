@@ -132,7 +132,7 @@ pub(crate) mod e2l_active_directory {
          * @brief: Clear the active directory.
          * #return: None.
          */
-        fn clear(&mut self) {
+        fn _clear(&mut self) {
             self.unassociated_dev_info.clear();
             self.associated_dev_info.clear();
         }
