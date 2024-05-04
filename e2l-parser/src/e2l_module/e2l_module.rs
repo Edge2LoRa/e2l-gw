@@ -321,7 +321,7 @@ pub(crate) mod e2l_module {
                                         ),
                                         frame_type: EDGE_FRAME_ID,
                                         fcnt: fcnt as u64,
-                                        timetag: mqtt_payload.timestamp as u64,
+                                        timetag: timetag.as_millis() as u64,
                                     });
                                 std::mem::drop(hostname);
                                 let mut rpc_client =

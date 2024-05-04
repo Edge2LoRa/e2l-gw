@@ -257,7 +257,7 @@ pub(crate) mod e2l_crypto {
                                 dev_eui: dev_info.dev_eui.clone(),
                                 dev_addr: dev_info.dev_addr.clone(),
                                 fcnt: fcnt,
-                                timestamp: packet.tmst,
+                                timestamp: packet.time.clone().unwrap_or("".to_string()),
                                 frequency: packet.freq,
                                 data_rate: packet.datr.clone(),
                                 coding_rate: packet.codr.clone(),
