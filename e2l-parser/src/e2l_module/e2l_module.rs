@@ -5,7 +5,6 @@ pub(crate) mod e2l_module {
     };
     use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::edge2_gateway_server::Edge2GatewayServer;
     use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::Edge2GatewayServerStruct;
-    use crate::info;
     use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
     use crate::lorawan_structs::lorawan_structs::ForwardProtocols;
     use crate::{
@@ -297,9 +296,7 @@ pub(crate) mod e2l_module {
                 let e2ed_enabled: bool = (f_port == DEFAULT_E2L_APP_PORT)
                     && e2l_crypto.check_e2ed_enabled(dev_addr_string.clone());
 
-                info(format!("NEW PACKETTTTTT!!!!!!"));
                 if e2ed_enabled {
-                    info(format!("NEW EDGE PACKETTTTTT!!!!!!"));
                     let mqtt_payload_option = e2l_crypto.get_json_mqtt_payload(
                         dev_addr_string.clone(),
                         fcnt,
@@ -693,6 +690,9 @@ pub(crate) mod e2l_module {
             let mut client_map = HashMap::new();
             let mut buf = [0; 64 * 1024];
 
+            let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock");
+            e2l_crypto.set_active(true);
+            std::mem::drop(e2l_crypto);
             Self::info(format!("Starting Listening for incoming LoRaWAN packets!"));
             loop {
                 let (num_bytes, src_addr) = local.recv_from(&mut buf).expect("Didn't receive data");
@@ -710,78 +710,78 @@ pub(crate) mod e2l_module {
                     }
 
                     let sender = client_map.entry(client_id.clone()).or_insert_with(|| {
-                //we are creating a new listener now, so a failure to send shoud be treated as an error
-                ignore_failure = false;
+                        //we are creating a new listener now, so a failure to send shoud be treated as an error
+                        ignore_failure = false;
 
-                let local_send_queue = main_sender.clone();
-                let (sender, receiver) = channel::<Vec<u8>>();
-                let remote_addr_copy = remote_addr.clone();
+                        let local_send_queue = main_sender.clone();
+                        let (sender, receiver) = channel::<Vec<u8>>();
+                        let remote_addr_copy = remote_addr.clone();
 
-                thread::spawn(move || {
-                    let mut rng = rand::thread_rng();
+                        thread::spawn(move || {
+                            let mut rng = rand::thread_rng();
 
-                    //regardless of which port we are listening to, we don't know which interface or IP
-                    //address the remote server is reachable via, so we bind the outgoing
-                    //connection to 0.0.0.0 in all cases.
-                    let temp_outgoing_addr = format!("0.0.0.0:{}", rng.gen_range(50000, 59999));
-                    Self::debug(format!("Establishing new forwarder for client {} on {}", src_addr, &temp_outgoing_addr));
-                    let upstream_send = UdpSocket::bind(&temp_outgoing_addr)
-                        .expect(&format!("Failed to bind to transient address {}", &temp_outgoing_addr));
-                    let upstream_recv = upstream_send.try_clone()
-                        .expect("Failed to clone client-specific connection to upstream!");
+                            //regardless of which port we are listening to, we don't know which interface or IP
+                            //address the remote server is reachable via, so we bind the outgoing
+                            //connection to 0.0.0.0 in all cases.
+                            let temp_outgoing_addr = format!("0.0.0.0:{}", rng.gen_range(50000, 59999));
+                            Self::debug(format!("Establishing new forwarder for client {} on {}", src_addr, &temp_outgoing_addr));
+                            let upstream_send = UdpSocket::bind(&temp_outgoing_addr)
+                                .expect(&format!("Failed to bind to transient address {}", &temp_outgoing_addr));
+                            let upstream_recv = upstream_send.try_clone()
+                                .expect("Failed to clone client-specific connection to upstream!");
 
-                    let mut timeouts: u64 = 0;
-                    let timed_out = Arc::new(AtomicBool::new(false));
+                            let mut timeouts: u64 = 0;
+                            let timed_out = Arc::new(AtomicBool::new(false));
 
-                    let local_timed_out = timed_out.clone();
+                            let local_timed_out = timed_out.clone();
 
 
-                    thread::spawn(move || {
-                        let mut from_upstream = [0; 64 * 1024];
+                            thread::spawn(move || {
+                                let mut from_upstream = [0; 64 * 1024];
 
-                        upstream_recv.set_read_timeout(Some(Duration::from_millis(TIMEOUT + 100))).unwrap();
-                        loop {
-                            match upstream_recv.recv_from(&mut from_upstream) {
-                                Ok((bytes_rcvd, _)) => {
-                                    let to_send = from_upstream[..bytes_rcvd].to_vec();
-                                    Self::debug(format!("Forwarding packet from client {} to upstream server", PACKETNAMES[&to_send[3]]));
+                                upstream_recv.set_read_timeout(Some(Duration::from_millis(TIMEOUT + 100))).unwrap();
+                                loop {
+                                    match upstream_recv.recv_from(&mut from_upstream) {
+                                        Ok((bytes_rcvd, _)) => {
+                                            let to_send = from_upstream[..bytes_rcvd].to_vec();
+                                            Self::debug(format!("Forwarding packet from client {} to upstream server", PACKETNAMES[&to_send[3]]));
 
-                                    local_send_queue.send((src_addr, to_send))
-                                        .expect("Failed to queue response from upstream server for forwarding!");
+                                            local_send_queue.send((src_addr, to_send))
+                                                .expect("Failed to queue response from upstream server for forwarding!");
+                                        }
+                                        Err(_) => {
+                                            if local_timed_out.load(Ordering::Relaxed) {
+                                                Self::debug(format!("Terminating forwarder thread for client {} due to timeout", src_addr));
+                                                break;
+                                            }
+                                        }
+                                    };
                                 }
-                                Err(_) => {
-                                    if local_timed_out.load(Ordering::Relaxed) {
-                                        Self::debug(format!("Terminating forwarder thread for client {} due to timeout", src_addr));
-                                        break;
+                            });
+
+                            loop {
+                                match receiver.recv_timeout(Duration::from_millis(TIMEOUT)) {
+                                    Ok(from_client) => {
+                                        Self::debug(format!("Forwarding packet from client {} to upstream server", PACKETNAMES[&from_client[3]]));
+                                        upstream_send.send_to(from_client.as_slice(), &remote_addr_copy)
+                                            .expect(&format!("Failed to forward packet from client {} to upstream server!", src_addr));
+                                        timeouts = 0; //reset timeout count
                                     }
-                                }
-                            };
-                        }
+                                    Err(_) => {
+                                        timeouts += 1;
+                                        if timeouts >= 10 {
+                                            Self::debug(format!("Disconnecting forwarder for client {} due to timeout", src_addr));
+                                            timed_out.store(true, Ordering::Relaxed);
+                                            break;
+                                        }
+                                    }
+                                };
+                            }
+
+                        });
+
+                        sender
                     });
-
-                    loop {
-                        match receiver.recv_timeout(Duration::from_millis(TIMEOUT)) {
-                            Ok(from_client) => {
-                                Self::debug(format!("Forwarding packet from client {} to upstream server", PACKETNAMES[&from_client[3]]));
-                                upstream_send.send_to(from_client.as_slice(), &remote_addr_copy)
-                                    .expect(&format!("Failed to forward packet from client {} to upstream server!", src_addr));
-                                timeouts = 0; //reset timeout count
-                            }
-                            Err(_) => {
-                                timeouts += 1;
-                                if timeouts >= 10 {
-                                    Self::debug(format!("Disconnecting forwarder for client {} due to timeout", src_addr));
-                                    timed_out.store(true, Ordering::Relaxed);
-                                    break;
-                                }
-                            }
-                        };
-                    }
-
-                });
-
-                sender
-            });
 
                     let to_send = buf[..num_bytes].to_vec();
 
@@ -809,20 +809,16 @@ pub(crate) mod e2l_module {
                                 std::mem::drop(fwinfo);
                             } else {
                                 for packet in data_json.rxpk.iter() {
-                                    let data: Vec<u8> = general_purpose::STANDARD
-                                        .encode(&packet.data)
-                                        .as_bytes()
-                                        .to_vec();
+                                    let data: Vec<u8> =
+                                        general_purpose::STANDARD.decode(&packet.data).unwrap();
 
                                     let gwmac: String = hex::encode(&to_send[4..12]);
                                     Self::debug(format!("Extracted GwMac {:x?}", gwmac));
 
-                                    info(format!("OOOOOOOOOOOOOOOOOOOOOOOOOOOOOOOO"));
                                     let parsed_data = parse(data.clone());
 
                                     match parsed_data {
                                         Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
-                                            info(format!("Encrypted Data"));
                                             let will_send_option = self
                                                 .handle_data_payload(
                                                     phy,
