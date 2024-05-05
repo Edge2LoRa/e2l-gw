@@ -13,28 +13,42 @@ pub(crate) mod e2l_mqtt_client {
         mqtt_client: mqtt::AsyncClient,
         mqtt_process_topic: String,
         mqtt_handover_base_topic: String,
-        mqtt_conn_opts_builder: mqtt::ConnectOptionsBuilder,
         mqtt_qos: i32,
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
     }
 
     impl E2LMqttClient {
-        pub fn new(mqtt_variables: MqttVariables, e2l_crypto: Arc<Mutex<E2LCrypto>>) -> Self {
-            let mqtt_client: mqtt::AsyncClient = mqtt::AsyncClient::new(format!(
+        pub fn new(
+            client_id: String,
+            mqtt_variables: MqttVariables,
+            e2l_crypto: Arc<Mutex<E2LCrypto>>,
+        ) -> Self {
+            let host = format!(
                 "{}:{}",
-                mqtt_variables.broker_url.clone(),
-                mqtt_variables.broker_port.clone()
-            ))
-            .unwrap_or_else(|err| {
-                println!("Error creating the client: {:?}", err);
-                std::process::exit(1);
-            });
+                mqtt_variables.broker_url, mqtt_variables.broker_port
+            );
+            let create_opts = mqtt::CreateOptionsBuilder::new()
+                .server_uri(host)
+                .client_id(client_id)
+                .finalize();
+            let mqtt_client: mqtt::AsyncClient = mqtt::AsyncClient::new(create_opts)
+                .unwrap_or_else(|err| {
+                    println!("Error creating the client: {:?}", err);
+                    std::process::exit(1);
+                });
 
             // Connection options
             let mut mqtt_conn_opts_builder: mqtt::ConnectOptionsBuilder =
-                mqtt::ConnectOptionsBuilder::new();
+                mqtt::ConnectOptionsBuilder::new_v5();
             mqtt_conn_opts_builder.user_name(mqtt_variables.broker_auth_name.clone());
             mqtt_conn_opts_builder.password(mqtt_variables.broker_auth_password.clone());
+            let connect_result = mqtt_client
+                .connect(mqtt_conn_opts_builder.finalize())
+                .wait();
+            if let Err(e) = connect_result {
+                println!("Error connecting to the broker: {:?}", e);
+                std::process::exit(1);
+            }
 
             // Subscribe to HANDOVER TOPIC
             let handover_base_topic = mqtt_variables.broker_handover_topic.clone();
@@ -43,7 +57,6 @@ pub(crate) mod e2l_mqtt_client {
                 mqtt_process_topic: mqtt_variables.broker_process_topic,
                 mqtt_handover_base_topic: handover_base_topic,
                 mqtt_qos: mqtt_variables.broker_qos,
-                mqtt_conn_opts_builder: mqtt_conn_opts_builder,
                 e2l_crypto: e2l_crypto,
             }
         }
@@ -72,10 +85,6 @@ pub(crate) mod e2l_mqtt_client {
 
         pub async fn run(&mut self) {
             let mut strm = self.mqtt_client.get_stream(25);
-            let _ = self
-                .mqtt_client
-                .connect(self.mqtt_conn_opts_builder.finalize())
-                .await;
             self.mqtt_client
                 .subscribe(self.mqtt_handover_base_topic.clone(), self.mqtt_qos);
 

@@ -514,13 +514,22 @@ pub(crate) mod e2l_module {
             /**************************
              * MQTT BROKER CONNECTION *
              **************************/
-            /*****************
-             * MQTT CLIENT   *
-             *****************/
-
             let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
-            let mut mqtt_client = E2LMqttClient::new(mqtt_variables, Arc::clone(&self.e2l_crypto));
-            mqtt_client.run().await;
+            let e2l_crypto_clone = Arc::clone(&self.e2l_crypto);
+            let e2l_crypto_clone_2 = Arc::clone(&self.e2l_crypto);
+            let mqtt_client =
+                E2LMqttClient::new("publisher".to_string(), mqtt_variables, e2l_crypto_clone);
+            thread::spawn(|| {
+                let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
+                let mut subscribe_mqtt_client = E2LMqttClient::new(
+                    "subscriber".to_string(),
+                    mqtt_variables,
+                    e2l_crypto_clone_2,
+                );
+                let rt =
+                    tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
+                rt.block_on(subscribe_mqtt_client.run());
+            });
             /*****************
              * RPC SERVER    *
              *****************/
