@@ -4,7 +4,6 @@ package edge2gateway;
 
 service Edge2Gateway {
     rpc handle_ed_pub_info (EdPubInfo) returns (GwInfo);
-    rpc update_aggregation_params (AggregationParams) returns (GwResponse);
     rpc remove_e2device (E2LDeviceInfo) returns (E2LData);
     rpc add_devices (E2LDevicesInfoComplete) returns (GwResponse);
     rpc set_active (ActiveFlag) returns (GwResponse);
@@ -24,11 +23,6 @@ message EdPubInfo {
 message GwInfo {
     sint32 status_code = 1;
     bytes g_gw_ed = 2;
-}
-
-message AggregationParams {
-    uint32 aggregation_function = 1;
-    uint32 window_size = 2;
 }
 
 message GwResponse {

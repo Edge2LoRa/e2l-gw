@@ -5,6 +5,11 @@ pub(crate) mod e2l_module {
     };
     use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::edge2_gateway_server::Edge2GatewayServer;
     use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::Edge2GatewayServerStruct;
+    use crate::e2l_crypto::e2l_crypto::e2l_crypto::{
+        EDGE_FRAMES_FCNTS, EDGE_FRAMES_LAST, EDGE_FRAMES_NUM, EDGE_NOT_PROCESSED_FRAMES_FCNTS,
+        EDGE_NOT_PROCESSED_FRAMES_LAST, EDGE_NOT_PROCESSED_FRAMES_NUM, LEGACY_FRAMES_FCNTS,
+        LEGACY_FRAMES_LAST, LEGACY_FRAMES_NUM,
+    };
     use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::E2LMqttClient;
     use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
     use crate::lorawan_structs::lorawan_structs::ForwardProtocols;
@@ -56,17 +61,6 @@ pub(crate) mod e2l_module {
     static DEFAULT_E2L_APP_PORT: u8 = 4;
     static _DEFAULT_E2L_COMMAND_PORT: u8 = 5;
 
-    // FRAMES COUNTERS
-    static mut LEGACY_FRAMES_NUM: u64 = 0;
-    static mut LEGACY_FRAMES_LAST: u64 = 0;
-    static mut LEGACY_FRAMES_FCNTS: Vec<FcntStruct> = Vec::new();
-    static mut EDGE_FRAMES_NUM: u64 = 0;
-    static mut EDGE_FRAMES_LAST: u64 = 0;
-    static mut EDGE_FRAMES_FCNTS: Vec<FcntStruct> = Vec::new();
-    static mut EDGE_NOT_PROCESSED_FRAMES_NUM: u64 = 0;
-    static mut EDGE_NOT_PROCESSED_FRAMES_LAST: u64 = 0;
-    static mut EDGE_NOT_PROCESSED_FRAMES_FCNTS: Vec<FcntStruct> = Vec::new();
-
     lazy_static! {
         static ref PACKETNAMES: HashMap<u8, &'static str> = {
             let mut m = HashMap::new();
@@ -85,6 +79,7 @@ pub(crate) mod e2l_module {
         fwinfo: Arc<Mutex<ForwardInfo>>,
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
         rpc_client: Arc<Mutex<Edge2ApplicationServerClient<Channel>>>,
+        ignore_logs_flag: bool,
     }
 
     // STATIC FUNCTION
@@ -264,14 +259,13 @@ pub(crate) mod e2l_module {
             packet: &RxpkContent,
             gwmac: String,
             mqtt_client: &E2LMqttClient,
-            ignore_logs_flag: bool,
         ) -> Option<bool> {
             let mut will_send: bool = false;
             let fhdr = phy.fhdr();
             let fcnt = fhdr.fcnt();
+            let f_port = phy.f_port().unwrap();
             let dev_addr_vec = fhdr.dev_addr().as_ref().to_vec();
             let aux: Vec<u8> = dev_addr_vec.clone().into_iter().rev().collect();
-            let f_port = phy.f_port().unwrap();
             let strs: Vec<String> = aux.iter().map(|b| format!("{:02X}", b)).collect();
             let dev_addr_string = strs.join("");
 
@@ -304,7 +298,7 @@ pub(crate) mod e2l_module {
                     );
                     match mqtt_payload_option {
                         Some(mqtt_payload) => {
-                            if !ignore_logs_flag {
+                            if !self.ignore_logs_flag {
                                 let hostname = self.hostname.lock().expect("Could not lock!");
                                 let log_request: tonic::Request<GwLog> =
                                     tonic::Request::new(GwLog {
@@ -336,7 +330,9 @@ pub(crate) mod e2l_module {
                             }
                             let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                 .unwrap_or_else(|_| "Error".to_string());
-                            mqtt_client.publish_to_process(mqtt_payload_str.clone());
+                            mqtt_client
+                                .publish_to_process(mqtt_payload_str.clone())
+                                .await;
                         }
                         _ => {
                             return None;
@@ -350,7 +346,6 @@ pub(crate) mod e2l_module {
                                 .get_unassociated_json_mqtt_payload(
                                     dev_addr_string.clone(),
                                     fcnt,
-                                    phy,
                                     packet,
                                     gwmac,
                                 );
@@ -358,7 +353,7 @@ pub(crate) mod e2l_module {
                             match mqtt_payload_option {
                                 Some(mqtt_payload) => {
                                     // SEND LOG
-                                    if !ignore_logs_flag {
+                                    if !self.ignore_logs_flag {
                                         let hostname =
                                             self.hostname.lock().expect("Could not lock!");
                                         let log_request: tonic::Request<GwLog> =
@@ -387,9 +382,58 @@ pub(crate) mod e2l_module {
                                     let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                         .unwrap_or_else(|_| "Error".to_string());
                                     mqtt_client.publish_to_handover(gw_id, mqtt_payload_str);
+                                    will_send = false;
                                 }
                                 None => {
-                                    return None;
+                                    let fwinfo = self.fwinfo.lock().expect("Could not lock!");
+                                    match fwinfo.forward_protocol {
+                                        ForwardProtocols::UDP => {
+                                            Self::debug(format!(
+                                                "Forwarding to {:x?}",
+                                                fwinfo.forward_host.clone()
+                                            ));
+
+                                            Self::debug(format!(
+                                                "Forwarding Legacy Frame to {}",
+                                                dev_addr.clone()
+                                            ));
+
+                                            if !self.ignore_logs_flag {
+                                                let hostname =
+                                                    self.hostname.lock().expect("Could not lock!");
+                                                let log_request: tonic::Request<GwLog> =
+                                                    tonic::Request::new(GwLog {
+                                                        gw_id: hostname.clone(),
+                                                        dev_addr: dev_addr_string.clone(),
+                                                        log: format!(
+                                                            "Received Legacy Frame from {}",
+                                                            dev_addr.clone()
+                                                        ),
+                                                        frame_type: LEGACY_FRAME_ID,
+                                                        fcnt: fcnt as u64,
+                                                        timetag: timetag.as_millis() as u64,
+                                                    });
+                                                std::mem::drop(hostname);
+                                                let mut rpc_client = self
+                                                    .rpc_client
+                                                    .lock()
+                                                    .expect("Could not lock.");
+                                                rpc_client
+                                                    .gw_log(log_request)
+                                                    .await
+                                                    .expect("Error sending logs!");
+                                                std::mem::drop(rpc_client);
+                                            }
+                                            unsafe {
+                                                LEGACY_FRAMES_NUM = LEGACY_FRAMES_NUM + 1;
+                                                LEGACY_FRAMES_FCNTS.push(FcntStruct {
+                                                    dev_addr: dev_addr_string.clone(),
+                                                    fcnt: fcnt as u64,
+                                                });
+                                            }
+                                        } // _ => panic!("Forwarding protocol not implemented!"),
+                                    }
+                                    std::mem::drop(fwinfo);
                                 }
                             }
                             unsafe {
@@ -399,7 +443,6 @@ pub(crate) mod e2l_module {
                                     fcnt: fcnt as u64,
                                 });
                             }
-                            will_send = false;
                         }
                         port if port == DEFAULT_APP_PORT => {
                             let fwinfo = self.fwinfo.lock().expect("Could not lock!");
@@ -415,7 +458,7 @@ pub(crate) mod e2l_module {
                                         dev_addr.clone()
                                     ));
 
-                                    if !ignore_logs_flag {
+                                    if !self.ignore_logs_flag {
                                         let hostname =
                                             self.hostname.lock().expect("Could not lock!");
                                         let log_request: tonic::Request<GwLog> =
@@ -468,6 +511,14 @@ pub(crate) mod e2l_module {
         pub async fn new() -> E2LModule {
             dotenv::dotenv().ok();
             let env_variables: EnvVariables = Self::charge_environment_variables();
+            // GET IGNORE LOG FLAG
+            let ignore_logs_str_flag = dotenv::var("IGNORE_LOGS").unwrap();
+            let ignore_logs_flag: bool;
+            if ignore_logs_str_flag == "1" {
+                ignore_logs_flag = true;
+            } else {
+                ignore_logs_flag = false;
+            }
             /*****************
              * ENV VARIABLES *
              *****************/
@@ -492,25 +543,18 @@ pub(crate) mod e2l_module {
             /*
              * E2LCrypto
              */
-            let e2l_crypto = E2LCrypto::new(hostname.clone());
+            let e2l_crypto = E2LCrypto::new(hostname.clone(), ignore_logs_flag);
             let e2l_crypto_arc = Arc::new(Mutex::new(e2l_crypto));
             E2LModule {
                 hostname: Arc::new(Mutex::new(hostname.clone())),
                 fwinfo: Arc::new(Mutex::new(fwinfo)),
                 e2l_crypto: e2l_crypto_arc,
                 rpc_client: Arc::new(Mutex::new(rpc_client)),
+                ignore_logs_flag: ignore_logs_flag,
             }
         }
 
         pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
-            // GET IGNORE LOG FLAG
-            let ignore_logs_str_flag = dotenv::var("IGNORE_LOGS").unwrap();
-            let ignore_logs_flag: bool;
-            if ignore_logs_str_flag == "1" {
-                ignore_logs_flag = true;
-            } else {
-                ignore_logs_flag = false;
-            }
             /**************************
              * MQTT BROKER CONNECTION *
              **************************/
@@ -770,7 +814,6 @@ pub(crate) mod e2l_module {
                                                     packet,
                                                     gwmac,
                                                     &mqtt_client,
-                                                    ignore_logs_flag,
                                                 )
                                                 .await;
                                             match will_send_option {

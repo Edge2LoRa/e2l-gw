@@ -4,9 +4,23 @@ static _MIN_ID: u8 = 3;
 static _MAX_ID: u8 = 4;
 pub(crate) mod e2l_crypto {
     use base64::{engine::general_purpose, Engine as _};
+    use lorawan_encoding::parser::parse;
+    use lorawan_encoding::parser::DataHeader;
+    use lorawan_encoding::parser::DataPayload;
+    use lorawan_encoding::parser::PhyPayload;
     // MUTEX
     use std::sync::{Arc, Mutex, MutexGuard};
 
+    // FRAMES COUNTERS
+    pub static mut LEGACY_FRAMES_NUM: u64 = 0;
+    pub static mut LEGACY_FRAMES_LAST: u64 = 0;
+    pub static mut LEGACY_FRAMES_FCNTS: Vec<FcntStruct> = Vec::new();
+    pub static mut EDGE_FRAMES_NUM: u64 = 0;
+    pub static mut EDGE_FRAMES_LAST: u64 = 0;
+    pub static mut EDGE_FRAMES_FCNTS: Vec<FcntStruct> = Vec::new();
+    pub static mut EDGE_NOT_PROCESSED_FRAMES_NUM: u64 = 0;
+    pub static mut EDGE_NOT_PROCESSED_FRAMES_LAST: u64 = 0;
+    pub static mut EDGE_NOT_PROCESSED_FRAMES_FCNTS: Vec<FcntStruct> = Vec::new();
     // Crypto
     extern crate p256;
     extern crate serde_json;
@@ -15,7 +29,7 @@ pub(crate) mod e2l_crypto {
 
     use lorawan_encoding::default_crypto::DefaultFactory;
     use lorawan_encoding::keys::AES128;
-    use lorawan_encoding::parser::{AsPhyPayloadBytes, EncryptedDataPayload};
+    use lorawan_encoding::parser::EncryptedDataPayload;
     use p256::elliptic_curve::point::AffineCoordinates;
     use p256::elliptic_curve::point::NonIdentity;
     use p256::elliptic_curve::rand_core::OsRng;
@@ -26,6 +40,7 @@ pub(crate) mod e2l_crypto {
     use sha2::Digest;
     use sha2::Sha256;
 
+    use crate::e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::FcntStruct;
     use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::{Device, E2lData, GwResponse};
     use crate::lorawan_structs::lorawan_structs::lora_structs::RxpkContent;
     use crate::mqtt_client::mqtt_structs::mqtt_structs::{MqttJson, UnassociatedMqttJson};
@@ -42,6 +57,7 @@ pub(crate) mod e2l_crypto {
         pub compressed_public_key: Option<Box<[u8]>>,
         pub active_directory_mutex: Arc<Mutex<E2LActiveDirectory>>,
         is_active: Arc<Mutex<bool>>,
+        _ignore_logs_flag: bool,
     }
 
     struct KeyInfo {
@@ -90,7 +106,7 @@ pub(crate) mod e2l_crypto {
         /*
            @brief: This function return a new E2LCrypto object
         */
-        pub fn new(hostname: String) -> Self {
+        pub fn new(hostname: String, ignore_logs_flag: bool) -> Self {
             let key_info = Self::generate_ecc_keys();
             let return_value = E2LCrypto {
                 gw_id: hostname,
@@ -99,6 +115,7 @@ pub(crate) mod e2l_crypto {
                 compressed_public_key: key_info.compressed_public_key,
                 active_directory_mutex: Arc::new(Mutex::new(E2LActiveDirectory::new())),
                 is_active: Arc::new(Mutex::new(false)),
+                _ignore_logs_flag: ignore_logs_flag,
             };
 
             return return_value;
@@ -285,7 +302,6 @@ pub(crate) mod e2l_crypto {
             &self,
             dev_addr: String,
             fcnt: u16,
-            phy: EncryptedDataPayload<Vec<u8>, DefaultFactory>,
             packet: &RxpkContent,
             gwmac: String,
         ) -> Option<UnassociatedMqttJson> {
@@ -300,16 +316,20 @@ pub(crate) mod e2l_crypto {
                         dev_eui: dev_info.dev_eui.clone(),
                         dev_addr: dev_info.dev_addr.clone(),
                         gw_id: dev_info.e2gw_id.clone(),
+                        gwmac: gwmac,
                         fcnt: fcnt,
-                        timestamp: packet.tmst,
-                        frequency: packet.freq,
-                        data_rate: packet.datr.clone(),
-                        coding_rate: packet.codr.clone(),
-                        gtw_id: gwmac,
-                        gtw_channel: packet.chan.unwrap(),
-                        gtw_rssi: packet.rssi.unwrap(),
-                        gtw_snr: packet.lsnr.unwrap(),
-                        encrypted_payload: general_purpose::STANDARD.encode(phy.as_bytes()),
+                        time: packet.time.clone(),
+                        tmst: packet.tmst,
+                        freq: packet.freq,
+                        chan: packet.chan,
+                        stat: packet.stat,
+                        modu: packet.modu.clone(),
+                        datr: packet.datr.clone(),
+                        codr: packet.codr.clone(),
+                        rssi: packet.rssi,
+                        lsnr: packet.lsnr,
+                        size: packet.size,
+                        data: packet.data.clone(),
                     });
                 }
                 None => return None,
@@ -338,57 +358,161 @@ pub(crate) mod e2l_crypto {
         }
 
         pub fn add_devices(&self, device_list: Vec<Device>) -> GwResponse {
-            let device_list_len = device_list.len();
-            let mut active_directory: MutexGuard<E2LActiveDirectory> =
-                self.active_directory_mutex.lock().unwrap();
+            let mut assigned_device_number: i32 = 0;
+            let mut unassigned_device_number: i32 = 0;
             for device in device_list {
-                // Create fake priv pub device key
-                let dev_fake_private_key = Some(P256SecretKey::random(&mut OsRng));
-                let dev_fake_public_key =
-                    Some(dev_fake_private_key.clone().unwrap().public_key()).unwrap();
+                let assigned_gw = device.assigned_gw;
                 let dev_eui = device.dev_eui;
                 let dev_addr = device.dev_addr;
-                let edge_s_enc_key_vec = device.edge_s_enc_key;
-                let edge_s_enc_key_bytes: [u8; 16] = edge_s_enc_key_vec.try_into().unwrap();
-                let edge_s_enc_key = AES128::from(edge_s_enc_key_bytes.clone());
 
-                let edge_s_int_key_vec = device.edge_s_int_key;
-                let edge_s_int_key_bytes: [u8; 16] = edge_s_int_key_vec.try_into().unwrap();
-                let edge_s_int_key = AES128::from(edge_s_int_key_bytes.clone());
-
-                let assigned_gw = device.assigned_gw;
+                // Check if device is assigned to the current gw
                 if assigned_gw != self.gw_id {
+                    let mut active_directory: MutexGuard<E2LActiveDirectory> =
+                        self.active_directory_mutex.lock().unwrap();
                     active_directory.add_unassociated_dev(dev_eui, dev_addr, assigned_gw);
-                } else {
-                    active_directory.add_associated_dev(
-                        dev_eui,
-                        dev_addr,
-                        dev_fake_public_key,
-                        edge_s_enc_key,
-                        edge_s_int_key,
-                    );
+                    std::mem::drop(active_directory);
+                    unassigned_device_number += 1;
+                    continue;
                 }
+                // Create fake priv pub device key
+                let dev_fake_private_key = Some(P256SecretKey::random(&mut OsRng));
+                let dev_fake_public_key: P256PublicKey<p256::NistP256> =
+                    Some(dev_fake_private_key.clone().unwrap().public_key()).unwrap();
+                let edge_s_enc_key_vec: Vec<u8> = device.edge_s_enc_key;
+                let edge_s_enc_key_bytes: [u8; 16] = edge_s_enc_key_vec.try_into().unwrap();
+                let edge_s_enc_key: AES128 = AES128::from(edge_s_enc_key_bytes.clone());
+
+                // GET Device sessions keys
+                let edge_s_int_key_vec: Vec<u8> = device.edge_s_int_key;
+                let edge_s_int_key_bytes: [u8; 16] = edge_s_int_key_vec.try_into().unwrap();
+                let edge_s_int_key: AES128 = AES128::from(edge_s_int_key_bytes.clone());
+
+                // Add Info to dev info struct
+                let mut active_directory: MutexGuard<E2LActiveDirectory> =
+                    self.active_directory_mutex.lock().unwrap();
+                active_directory.add_associated_dev(
+                    dev_eui,
+                    dev_addr,
+                    dev_fake_public_key,
+                    edge_s_enc_key,
+                    edge_s_int_key,
+                );
+                std::mem::drop(active_directory);
+                assigned_device_number += 1;
             }
-            std::mem::drop(active_directory);
 
             let response = GwResponse {
                 status_code: 0,
                 message: "Devices added".to_string(),
             };
-            println!("INFO: ADDED {} DEVICES", device_list_len);
+            println!("INFO: ADDED {} ASSIGNED DEVICES", assigned_device_number);
+            println!(
+                "INFO: ADDED {} UNASSIGNED DEVICES",
+                unassigned_device_number
+            );
             return response;
         }
 
         pub fn handover_callback(&self, topic: String, payload_str: String) -> Option<String> {
             println!("Topic: {:?}", topic);
             println!("Payload: {:?}", payload_str);
-            return Some("".to_string());
+            let payload: UnassociatedMqttJson = serde_json::from_str(&payload_str).unwrap();
+            println!("Payload: {:?}", payload);
+            let dev_addr = payload.dev_addr;
+            let e2ed_enabled = self.check_e2ed_enabled(dev_addr.clone());
+            if !e2ed_enabled {
+                return None;
+            }
+            println!("E2ED ENABLED");
+            let packet = RxpkContent {
+                time: payload.time.clone(),
+                tmst: payload.tmst,
+                freq: payload.freq,
+                chan: payload.chan,
+                stat: payload.stat,
+                modu: payload.modu,
+                datr: payload.datr,
+                codr: payload.codr,
+                rssi: payload.rssi,
+                lsnr: payload.lsnr,
+                size: payload.size,
+                data: payload.data,
+            };
+
+            let data: Vec<u8> = general_purpose::STANDARD.decode(&packet.data).unwrap();
+            let parsed_data = parse(data.clone());
+            match parsed_data {
+                Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
+                    let fhdr = phy.fhdr();
+                    let fcnt = fhdr.fcnt();
+                    let dev_addr_vec = fhdr.dev_addr().as_ref().to_vec();
+                    let aux: Vec<u8> = dev_addr_vec.clone().into_iter().rev().collect();
+                    let strs: Vec<String> = aux.iter().map(|b| format!("{:02X}", b)).collect();
+                    let dev_addr_string = strs.join("");
+                    let mqtt_payload_option = self.get_json_mqtt_payload(
+                        dev_addr.clone(),
+                        payload.fcnt,
+                        phy,
+                        &packet,
+                        payload.gwmac,
+                    );
+                    match mqtt_payload_option {
+                        Some(mqtt_payload) => {
+                            // if !self.ignore_logs_flag {
+                            //     let hostname = self.hostname.lock().expect("Could not lock!");
+                            //     let log_request: tonic::Request<GwLog> =
+                            //         tonic::Request::new(GwLog {
+                            //             gw_id: hostname.clone(),
+                            //             dev_addr: dev_addr_string.clone(),
+                            //             log: format!(
+                            //                 "Processed Edge Frame from {}",
+                            //                 dev_addr.clone()
+                            //             ),
+                            //             frame_type: EDGE_FRAME_ID,
+                            //             fcnt: fcnt as u64,
+                            //             timetag: timetag.as_millis() as u64,
+                            //         });
+                            //     std::mem::drop(hostname);
+                            //     let mut rpc_client =
+                            //         self.rpc_client.lock().expect("Could not lock.");
+                            //     rpc_client
+                            //         .gw_log(log_request)
+                            //         .await
+                            //         .expect("Error sending logs!");
+                            //     std::mem::drop(rpc_client);
+                            // }
+                            unsafe {
+                                EDGE_FRAMES_NUM = EDGE_FRAMES_NUM + 1;
+                                EDGE_FRAMES_FCNTS.push(FcntStruct {
+                                    dev_addr: dev_addr_string.clone(),
+                                    fcnt: fcnt as u64,
+                                });
+                            }
+                            let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
+                                .unwrap_or_else(|_| "Error".to_string());
+                            return Some(mqtt_payload_str);
+                        }
+                        None => {
+                            println!("Not processing: Error while parsing JSON to send to Process topic.");
+                            return None;
+                        }
+                    }
+                }
+                Err(_) => {
+                    println!("Not processing: Unknown Packet.");
+                    return None;
+                }
+                _ => {
+                    println!("Not processing: No DataPayload packet.");
+                    return None;
+                }
+            }
         }
     }
 
     impl Default for E2LCrypto {
         fn default() -> Self {
-            Self::new(gethostname().into_string().unwrap())
+            Self::new(gethostname().into_string().unwrap(), true)
         }
     }
 }

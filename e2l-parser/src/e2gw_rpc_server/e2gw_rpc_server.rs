@@ -57,20 +57,6 @@ pub(crate) mod e2gw_rpc_server {
             Ok(Response::new(reply))
         }
 
-        async fn update_aggregation_params(
-            &self,
-            request: Request<AggregationParams>,
-        ) -> Result<Response<GwResponse>, Status> {
-            let inner_request = request.into_inner();
-            let _aggregation_function: u32 = inner_request.aggregation_function;
-            let _window_size: u32 = inner_request.window_size;
-            let response = GwResponse {
-                status_code: 0,
-                message: "Parameters Updated!".to_string(),
-            };
-            Ok(Response::new(response))
-        }
-
         async fn remove_e2device(
             &self,
             request: Request<E2lDeviceInfo>,
