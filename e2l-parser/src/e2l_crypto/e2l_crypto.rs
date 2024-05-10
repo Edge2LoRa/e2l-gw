@@ -383,6 +383,14 @@ pub(crate) mod e2l_crypto {
                     unassigned_device_number += 1;
                     continue;
                 }
+                let active_directory: MutexGuard<E2LActiveDirectory> =
+                    self.active_directory_mutex.lock().unwrap();
+                let already_existing = active_directory.is_associated_dev(&dev_addr.clone());
+                std::mem::drop(active_directory);
+                if already_existing {
+                    continue;
+                }
+
                 // Create fake priv pub device key
                 let dev_fake_private_key = Some(P256SecretKey::random(&mut OsRng));
                 let dev_fake_public_key: P256PublicKey<p256::NistP256> =
