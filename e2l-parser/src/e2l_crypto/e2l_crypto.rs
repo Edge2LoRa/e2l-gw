@@ -122,7 +122,7 @@ pub(crate) mod e2l_crypto {
         }
     }
 
-    //
+    // PUBLIC FUNCTIONS
     impl E2LCrypto {
         pub fn set_active(&self, is_active: bool) {
             let mut aux = self.is_active.lock().expect("Could not lock");
@@ -259,10 +259,15 @@ pub(crate) mod e2l_crypto {
         ) -> Option<MqttJson> {
             let active_directory: MutexGuard<E2LActiveDirectory> =
                 self.active_directory_mutex.lock().expect("Could not lock!");
-            let dev_info_option: Option<&AssociatedDevInfo> =
+            let dev_info_option: Option<AssociatedDevInfo> =
                 active_directory.get_associated_dev(&dev_addr.clone());
+            std::mem::drop(active_directory);
             match dev_info_option {
                 Some(dev_info) => {
+                    if dev_info.fcnts.contains(&fcnt) {
+                        println!("Duplicate packet");
+                        return None;
+                    }
                     // GET KEYS
                     let edge_s_enc_key: AES128 = dev_info.edge_s_enc_key.clone();
                     let edge_s_int_key: AES128 = dev_info.edge_s_int_key.clone();
@@ -273,6 +278,10 @@ pub(crate) mod e2l_crypto {
                     let frame_payload_result = decrypted_data_payload.frm_payload().unwrap();
                     match frame_payload_result {
                         lorawan_encoding::parser::FRMPayload::Data(frame_payload) => {
+                            let mut active_directory =
+                                self.active_directory_mutex.lock().expect("Could not lock!");
+                            active_directory.add_fcnt(&dev_addr, fcnt.clone());
+                            std::mem::drop(active_directory);
                             return Some(MqttJson {
                                 dev_eui: dev_info.dev_eui.clone(),
                                 dev_addr: dev_info.dev_addr.clone(),
@@ -307,7 +316,7 @@ pub(crate) mod e2l_crypto {
         ) -> Option<UnassociatedMqttJson> {
             let active_directory: MutexGuard<E2LActiveDirectory> =
                 self.active_directory_mutex.lock().unwrap();
-            let dev_info_option: Option<&UnassociatedDevInfo> =
+            let dev_info_option: Option<UnassociatedDevInfo> =
                 active_directory.get_unassociated_dev(&dev_addr.clone());
             match dev_info_option {
                 Some(dev_info) => {
