@@ -10,6 +10,7 @@ pub(crate) mod e2l_mqtt_client {
     use std::time::Duration;
 
     pub struct E2LMqttClient {
+        gw_id: String,
         mqtt_client: mqtt::AsyncClient,
         mqtt_process_topic: String,
         mqtt_handover_base_topic: String,
@@ -19,6 +20,7 @@ pub(crate) mod e2l_mqtt_client {
 
     impl E2LMqttClient {
         pub fn new(
+            gw_id: String,
             client_id: String,
             mqtt_variables: MqttVariables,
             e2l_crypto: Arc<Mutex<E2LCrypto>>,
@@ -53,6 +55,7 @@ pub(crate) mod e2l_mqtt_client {
             // Subscribe to HANDOVER TOPIC
             let handover_base_topic = mqtt_variables.broker_handover_topic.clone();
             E2LMqttClient {
+                gw_id: gw_id,
                 mqtt_client: mqtt_client,
                 mqtt_process_topic: mqtt_variables.broker_process_topic,
                 mqtt_handover_base_topic: handover_base_topic,
@@ -85,9 +88,10 @@ pub(crate) mod e2l_mqtt_client {
         }
 
         pub async fn run(&mut self) {
+            let subscribe_topic: String =
+                format!("{}/{}", self.mqtt_handover_base_topic.clone(), self.gw_id);
             let mut strm = self.mqtt_client.get_stream(25);
-            self.mqtt_client
-                .subscribe(self.mqtt_handover_base_topic.clone(), self.mqtt_qos);
+            self.mqtt_client.subscribe(subscribe_topic, self.mqtt_qos);
 
             if let Err(err) = block_on(async {
                 while let Some(msg_opt) = strm.next().await {
