@@ -430,7 +430,7 @@ pub(crate) mod e2l_crypto {
             return response;
         }
 
-        pub fn handover_callback(&self, topic: String, payload_str: String) -> Option<String> {
+        pub fn handover_callback(&self, _topic: String, payload_str: String) -> Option<String> {
             let payload: UnassociatedMqttJson = serde_json::from_str(&payload_str).unwrap();
             let dev_addr = payload.dev_addr;
             let e2ed_enabled = self.check_e2ed_enabled(dev_addr.clone());
