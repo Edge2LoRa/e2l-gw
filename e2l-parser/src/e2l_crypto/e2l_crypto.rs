@@ -431,16 +431,12 @@ pub(crate) mod e2l_crypto {
         }
 
         pub fn handover_callback(&self, topic: String, payload_str: String) -> Option<String> {
-            println!("Topic: {:?}", topic);
-            println!("Payload: {:?}", payload_str);
             let payload: UnassociatedMqttJson = serde_json::from_str(&payload_str).unwrap();
-            println!("Payload: {:?}", payload);
             let dev_addr = payload.dev_addr;
             let e2ed_enabled = self.check_e2ed_enabled(dev_addr.clone());
             if !e2ed_enabled {
                 return None;
             }
-            println!("E2ED ENABLED");
             let packet = RxpkContent {
                 time: payload.time.clone(),
                 tmst: payload.tmst,
