@@ -265,7 +265,7 @@ pub(crate) mod e2l_crypto {
             match dev_info_option {
                 Some(dev_info) => {
                     if dev_info.fcnts.contains(&fcnt) {
-                        println!("Duplicate packet");
+                        println!("INFO: Duplicate packet, not processing");
                         return None;
                     }
                     // GET KEYS
