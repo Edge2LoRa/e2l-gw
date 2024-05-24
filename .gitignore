@@ -1,5 +1,3 @@
 .env*
 e2l-gw-broker/data
 e2l-gw-broker/log
-
-build-e2l-parser-image-and-push.sh
