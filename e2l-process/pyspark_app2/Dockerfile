@@ -7,7 +7,10 @@ WORKDIR /opt/bitnami/spark
 COPY requirements.txt .
 
 #Install dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+RUN sudo apt-get update && \
+    sudo apt-get install gcc python3-dev && \
+    pip install wheel && \
+    pip install --no-cache-dir -r requirements.txt
 
 #Copy the pyspark app into the container
 COPY time-window_aggregation.py .
