@@ -6,7 +6,6 @@ mod e2l_module;
 mod e2l_mqtt_client;
 mod json_structs;
 mod lorawan_structs;
-mod mqtt_client;
 
 #[macro_use]
 extern crate lazy_static;

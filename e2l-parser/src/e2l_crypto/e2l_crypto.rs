@@ -42,8 +42,10 @@ pub(crate) mod e2l_crypto {
 
     use crate::e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::FcntStruct;
     use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::{Device, E2lData, GwResponse};
+    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{
+        MqttJson, UnassociatedMqttJson,
+    };
     use crate::lorawan_structs::lorawan_structs::lora_structs::RxpkContent;
-    use crate::mqtt_client::mqtt_structs::mqtt_structs::{MqttJson, UnassociatedMqttJson};
 
     // ACTIVE DIRECTORY
     use crate::e2l_active_directory::e2l_active_directory::e2l_active_directory::{

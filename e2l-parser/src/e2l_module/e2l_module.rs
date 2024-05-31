@@ -11,6 +11,7 @@ pub(crate) mod e2l_module {
         LEGACY_FRAMES_LAST, LEGACY_FRAMES_NUM,
     };
     use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::E2LMqttClient;
+    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::MqttVariables;
     use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
     use crate::lorawan_structs::lorawan_structs::ForwardProtocols;
     use crate::{
@@ -18,7 +19,6 @@ pub(crate) mod e2l_module {
         e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto,
         json_structs::filters_json_structs::filter_json::EnvVariables,
         lorawan_structs::lorawan_structs::ForwardInfo,
-        mqtt_client::mqtt_structs::mqtt_structs::MqttVariables,
     };
     use gethostname::gethostname;
     use lorawan_encoding::default_crypto::DefaultFactory;
