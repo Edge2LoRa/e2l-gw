@@ -1,4 +1,5 @@
-FROM bitnami/spark:latest
+FROM bitnami/spark:3.4.3-debian-12-r1
+
 
 # Set the working directory
 WORKDIR /opt/bitnami/spark
@@ -6,11 +7,15 @@ WORKDIR /opt/bitnami/spark
 # Copy the requirements file into the container
 COPY requirements.txt .
 
+
 #Install dependencies
-RUN sudo apt-get update && \
-    sudo apt-get install gcc python3-dev && \
-    pip install wheel && \
-    pip install --no-cache-dir -r requirements.txt
+USER root 
+RUN apt-get update && \
+    apt-get install gcc python3-dev -y
+USER 1001
+RUN pip install wheel && \
+    pip install --no-cache-dir -r requirements.txt && \
+    mkdir output_files
 
 #Copy the pyspark app into the container
 COPY time-window_aggregation.py .
