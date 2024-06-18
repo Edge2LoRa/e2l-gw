@@ -15,7 +15,9 @@ services:
 
   pyspark_application:
     hostname: e2l-process-${GW_ID}
-    image: e2l-process:v2.0.0
+    image: ghcr.io/edge2lora/e2l-process:time-window-handover-test2
+    volumes:
+      - ./e2l-process/output_files/:/opt/bitnami/spark/output_files/
     depends_on:
       - e2l_gw_broker
     env_file:
@@ -25,7 +27,7 @@ services:
 
   e2l_parser:
     hostname: e2l-gw-${GW_ID}
-    image: e2l-parser:v1.1.0
+    image: ghcr.io/edge2lora/e2l-parser:handover-test1
     depends_on:
       - e2l_gw_broker
     env_file:

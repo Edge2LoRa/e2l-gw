@@ -14,7 +14,8 @@ RUN apt-get update && \
     apt-get install gcc python3-dev -y
 USER 1001
 RUN pip install wheel && \
-    pip install --no-cache-dir -r requirements.txt
+    pip install --no-cache-dir -r requirements.txt && \
+    mkdir output_files
 
 #Copy the pyspark app into the container
 COPY time-window_aggregation.py .

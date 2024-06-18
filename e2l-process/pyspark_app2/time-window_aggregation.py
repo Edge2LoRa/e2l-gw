@@ -143,7 +143,7 @@ def _get_sys_stats():
         os.makedirs(directory)
     filename = f"sys_stats_{datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')}.csv"
     with open(f"{directory}/{filename}", "w") as f:
-        f.write("memory_usage, memory_available, memory_percent, cpu_usage\n")
+        f.write("memory_usage,memory_available,memory_percent,cpu_usage\n")
 
     while True:
         mem_info = psutil.virtual_memory()
