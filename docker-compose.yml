@@ -13,7 +13,7 @@ services:
     networks:
       - e2l_network
 
-  pyspark_application:
+  e2l_process:
     hostname: e2l-process-${GW_ID}
     image: ghcr.io/edge2lora/e2l-process:time-window-handover-test2
     volumes:
