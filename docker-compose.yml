@@ -16,7 +16,7 @@ services:
   e2l_process:
     hostname: e2l-process-${GW_ID}
     image: ghcr.io/edge2lora/e2l-process:time-window-cp
-    # image: ghcr.io/edge2lora/e2l-process:hampel-cp
+    # image: ghcr.io/edge2lora/e2l-process:hampel-cp-1
     volumes:
       - ./e2l-process/output_files/:/opt/bitnami/spark/output_files/
     depends_on:

@@ -68,7 +68,7 @@ def check_env_vars() -> bool:
 
 
 # Function to perform the Hampel filter
-def hampel_filter(data, window_size, n_sigma):
+def hampel_filter(data, window_size, n_sigma, aggr_start_time):
     window = (
         Window.partitionBy("dev_addr")
         .orderBy("timestamp")
@@ -100,6 +100,7 @@ def hampel_filter(data, window_size, n_sigma):
             "fcnts": [row.fcnt for row in data.select("fcnt").collect()],
             "timestamps": [row.timestamp for row in data.select("timestamp").collect()],
             "timestamp_pub": int(time.time() * 1000),
+            "aggr_start_time": int(aggr_start_time * 1000),
         }
         publish_output_spark(json_payload)
 
@@ -138,6 +139,7 @@ schema = StructType(
 
 # Process readings
 def process_readings(rdd):
+    aggr_start_time = time.time()
     batch_df = spark.read.schema(schema).json(rdd)
     extract_temp = F.udf(
         lambda payload: json.loads(b64.b64decode(payload).decode("utf-8"))[0],
@@ -159,7 +161,7 @@ def process_readings(rdd):
     )
     window_size = int(os.getenv("WINDOW_SIZE_HAMPEL"))
     n_sigma = 1.0
-    hampel_filter(input_data, window_size, n_sigma)
+    hampel_filter(input_data, window_size, n_sigma, aggr_start_time)
 
 
 # Set up MQTT stream
