@@ -258,6 +258,7 @@ pub(crate) mod e2l_crypto {
             phy: EncryptedDataPayload<Vec<u8>, DefaultFactory>,
             packet: &RxpkContent,
             gwmac: String,
+            rx_gw_option: Option<String>,
         ) -> Option<MqttJson> {
             let active_directory: MutexGuard<E2LActiveDirectory> =
                 self.active_directory_mutex.lock().expect("Could not lock!");
@@ -284,10 +285,21 @@ pub(crate) mod e2l_crypto {
                                 self.active_directory_mutex.lock().expect("Could not lock!");
                             active_directory.add_fcnt(&dev_addr, fcnt.clone());
                             std::mem::drop(active_directory);
+                            let rx_gw: String;
+                            match rx_gw_option {
+                                Some(rx_gw_value) => {
+                                    rx_gw = rx_gw_value;
+                                }
+                                None => {
+                                    rx_gw = self.gw_id.clone();
+                                }
+                            }
                             return Some(MqttJson {
                                 dev_eui: dev_info.dev_eui.clone(),
                                 dev_addr: dev_info.dev_addr.clone(),
                                 fcnt: fcnt,
+                                rx_gw: rx_gw,
+                                process_gw: self.gw_id.clone(),
                                 timestamp: packet.time.clone().unwrap_or("".to_string()),
                                 frequency: packet.freq,
                                 data_rate: packet.datr.clone(),
@@ -327,6 +339,7 @@ pub(crate) mod e2l_crypto {
                         dev_eui: dev_info.dev_eui.clone(),
                         dev_addr: dev_info.dev_addr.clone(),
                         gw_id: dev_info.e2gw_id.clone(),
+                        rx_gw: self.gw_id.clone(),
                         gwmac: gwmac,
                         fcnt: fcnt,
                         time: packet.time.clone(),
@@ -470,32 +483,10 @@ pub(crate) mod e2l_crypto {
                         phy,
                         &packet,
                         payload.gwmac,
+                        Some(payload.rx_gw.clone()),
                     );
                     match mqtt_payload_option {
                         Some(mqtt_payload) => {
-                            // if !self.ignore_logs_flag {
-                            //     let hostname = self.hostname.lock().expect("Could not lock!");
-                            //     let log_request: tonic::Request<GwLog> =
-                            //         tonic::Request::new(GwLog {
-                            //             gw_id: hostname.clone(),
-                            //             dev_addr: dev_addr_string.clone(),
-                            //             log: format!(
-                            //                 "Processed Edge Frame from {}",
-                            //                 dev_addr.clone()
-                            //             ),
-                            //             frame_type: EDGE_FRAME_ID,
-                            //             fcnt: fcnt as u64,
-                            //             timetag: timetag.as_millis() as u64,
-                            //         });
-                            //     std::mem::drop(hostname);
-                            //     let mut rpc_client =
-                            //         self.rpc_client.lock().expect("Could not lock.");
-                            //     rpc_client
-                            //         .gw_log(log_request)
-                            //         .await
-                            //         .expect("Error sending logs!");
-                            //     std::mem::drop(rpc_client);
-                            // }
                             unsafe {
                                 EDGE_FRAMES_NUM = EDGE_FRAMES_NUM + 1;
                                 EDGE_FRAMES_FCNTS.push(FcntStruct {

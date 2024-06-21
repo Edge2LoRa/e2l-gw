@@ -295,6 +295,7 @@ pub(crate) mod e2l_module {
                         phy,
                         packet,
                         gwmac,
+                        None,
                     );
                     match mqtt_payload_option {
                         Some(mqtt_payload) => {
@@ -377,7 +378,6 @@ pub(crate) mod e2l_module {
                                             .expect("Error sending logs!");
                                         std::mem::drop(rpc_client);
                                     }
-                                    // TODO: PUBLISH ON OTHER GW TOPIC
                                     let gw_id = mqtt_payload.gw_id.clone();
                                     let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                         .unwrap_or_else(|_| "Error".to_string());
