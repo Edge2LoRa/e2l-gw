@@ -21,7 +21,7 @@ import paho.mqtt.client as mqtt
 
 # Initialize Spark
 findspark.init()
-spark_conf = SparkConf().setAppName("e2l-process")
+spark_conf = SparkConf().setAppName("e2l-process").setMaster("local[2]")
 sc = SparkContext(conf=spark_conf)
 sc.setLogLevel("ERROR")
 spark = SparkSession(sc)
@@ -98,6 +98,7 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
             "aggregated_data": json_outliers,
             "devaddrs": [row.dev_addr for row in data.select("dev_addr").collect()],
             "fcnts": [row.fcnt for row in data.select("fcnt").collect()],
+            "rx_process_gw": list(zip(data.select("rx_gw").collect(), data.select("process_gw").collect())),
             "timestamps": [row.timestamp for row in data.select("timestamp").collect()],
             "timestamp_pub": int(time.time() * 1000),
             "aggr_start_time": int(aggr_start_time * 1000),
@@ -133,6 +134,8 @@ schema = StructType(
         StructField("gtw_rssi", IntegerType(), True),
         StructField("gtw_snr", DoubleType(), True),
         StructField("payload", StringType(), True),
+        StructField("rx_gw", StringType(), True),
+        StructField("process_gw", StringType(), True)
     ]
 )
 
@@ -152,7 +155,7 @@ def process_readings(rdd):
     #         "timestamp"
     #     ),
     # )
-    input_data = batch_df.select("dev_addr", "fcnt", "timestamp", "soil_temp")
+    input_data = batch_df.select("dev_addr", "fcnt", "timestamp", "soil_temp", "rx_gw", "process_gw")
     input_data = input_data.withColumn(
         "timestamp",
         to_unix_timestamp(
