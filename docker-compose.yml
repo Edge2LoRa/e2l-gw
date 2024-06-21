@@ -21,7 +21,7 @@ services:
     depends_on:
       - e2l_gw_broker
     env_file:
-      - ".env.spark"
+      - ".env.process"
     networks:
       - e2l_network
 
