@@ -1,7 +1,10 @@
 pub(crate) mod e2l_mqtt_client {
+    extern crate p256;
+
     use futures::{executor::block_on, stream::StreamExt};
     use serde_derive::Deserialize;
     use serde_derive::Serialize;
+    use serde_json::Error;
     use std::sync::{Arc, Mutex};
 
     use crate::e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto;
@@ -57,6 +60,26 @@ pub(crate) mod e2l_mqtt_client {
         pub lsnr: Option<f32>,
         pub size: u32,
         pub data: String,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct NewAssignedDevice {
+        pub dev_eui: String,
+        pub dev_addr: String,
+        pub edge_s_enc_key: Vec<u8>,
+        pub edge_s_int_key: Vec<u8>,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct NewUnassociatedDevice {
+        pub dev_eui: String,
+        pub dev_addr: String,
+        pub assigned_gw: String,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    struct RemoveDevice {
+        pub dev_addr: String,
     }
 
     pub struct E2LMqttClient {
@@ -141,7 +164,7 @@ pub(crate) mod e2l_mqtt_client {
             }
         }
 
-        pub async fn run(&mut self) {
+        pub async fn run_handover_client(&mut self) {
             let subscribe_topic: String =
                 format!("{}/{}", self.mqtt_handover_base_topic.clone(), self.gw_id);
             let mut strm = self.mqtt_client.get_stream(25);
@@ -162,6 +185,111 @@ pub(crate) mod e2l_mqtt_client {
                                 Some(payload) => self.publish_to_process(payload).await,
                                 None => (),
                             }
+                        }
+                        None => {
+                            println!("Lost connection. Attempting reconnect.");
+                            while let Err(err) = self.mqtt_client.reconnect().await {
+                                println!("Error reconnecting: {}", err);
+                                // For tokio use: tokio::time::delay_for()
+                                std::thread::sleep(Duration::from_millis(1000));
+                            }
+                        }
+                    }
+                }
+                // Explicit return type for the async block
+                Ok::<(), mqtt::Error>(())
+            }) {
+                println!("Error: {:?}", err)
+            }
+        }
+
+        pub async fn run_control_client(&mut self) {
+            let subscribe_topic: String = format!("control/+");
+            let mut strm = self.mqtt_client.get_stream(25);
+            self.mqtt_client.subscribe(subscribe_topic, self.mqtt_qos);
+
+            if let Err(err) = block_on(async {
+                while let Some(msg_opt) = strm.next().await {
+                    match msg_opt {
+                        Some(msg) => {
+                            let payload_str = msg.payload_str().to_string();
+                            let topic = msg.topic();
+                            println!("INFO: Received message from control topic: {}", topic);
+                            println!("INFO: Message: {}", payload_str);
+                            // Split topic at /
+                            let topic_parts: Vec<&str> = topic.split("/").collect();
+                            let command = topic_parts[1];
+                            let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
+                            match command {
+                                "add_assigned_device" => {
+                                    println!("INFO: Command 'add_assigned_device' received");
+                                    let device_result: Result<NewAssignedDevice, Error> =
+                                        serde_json::from_str(&payload_str);
+                                    match device_result {
+                                        Ok(device) => {
+                                            let e2l_crypto =
+                                                self.e2l_crypto.lock().expect("Could not lock!");
+                                            e2l_crypto.add_assigned_device(device);
+                                            std::mem::drop(e2l_crypto);
+                                        }
+                                        Err(_) => {
+                                            println!("ERROR: Invalid JSON format for 'add_assigned_device' command");
+                                        }
+                                    }
+                                }
+                                "add_unassigned_device" => {
+                                    println!("INFO: Command 'add_unassigned_device' received");
+                                    let device_result: Result<NewUnassociatedDevice, Error> =
+                                        serde_json::from_str(&payload_str);
+                                    match device_result {
+                                        Ok(device) => {
+                                            let e2l_crypto =
+                                                self.e2l_crypto.lock().expect("Could not lock!");
+                                            e2l_crypto.add_unassigned_device(device);
+                                            std::mem::drop(e2l_crypto);
+                                        }
+                                        Err(_) => {
+                                            println!("ERROR: Invalid JSON format for 'add_unassigned_device' command");
+                                        }
+                                    }
+                                }
+                                "remove_assigned_device" => {
+                                    println!("INFO: Command 'remove_assigned_device' received");
+                                    let device_result: Result<RemoveDevice, Error> =
+                                        serde_json::from_str(&payload_str);
+                                    match device_result {
+                                        Ok(device) => {
+                                            let e2l_crypto =
+                                                self.e2l_crypto.lock().expect("Could not lock!");
+                                            e2l_crypto.remove_assigned_device(device.dev_addr);
+                                            std::mem::drop(e2l_crypto);
+                                        }
+                                        Err(_) => {
+                                            println!("ERROR: Invalid JSON format for 'remove_assigned_device' command");
+                                        }
+                                    }
+                                }
+                                "remove_unassigned_device" => {
+                                    println!("INFO: Command 'remove_unassigned_device' received");
+                                    let device_result: Result<RemoveDevice, Error> =
+                                        serde_json::from_str(&payload_str);
+                                    match device_result {
+                                        Ok(device) => {
+                                            let e2l_crypto =
+                                                self.e2l_crypto.lock().expect("Could not lock!");
+                                            e2l_crypto.remove_unassigned_device(device.dev_addr);
+                                            std::mem::drop(e2l_crypto);
+                                        }
+                                        Err(_) => {
+                                            println!("ERROR: Invalid JSON format for 'remove_assigned_device' command");
+                                        }
+                                    }
+                                }
+                                _ => {
+                                    println!("INFO: Unknown command received");
+                                }
+                            }
+                            std::mem::drop(e2l_crypto);
                         }
                         None => {
                             println!("Lost connection. Attempting reconnect.");

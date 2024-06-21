@@ -561,10 +561,12 @@ pub(crate) mod e2l_module {
             let hostname = self.hostname.lock().expect("Could not lock!");
             let hostname_1 = hostname.clone();
             let hostname_2 = hostname.clone();
+            let hostname_3 = hostname.clone();
             std::mem::drop(hostname);
             let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
             let e2l_crypto_clone = Arc::clone(&self.e2l_crypto);
             let e2l_crypto_clone_2 = Arc::clone(&self.e2l_crypto);
+            let e2l_crypto_clone_3 = Arc::clone(&self.e2l_crypto);
             let mqtt_client = E2LMqttClient::new(
                 hostname_1,
                 "publisher".to_string(),
@@ -573,15 +575,27 @@ pub(crate) mod e2l_module {
             );
             thread::spawn(|| {
                 let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
-                let mut subscribe_mqtt_client = E2LMqttClient::new(
+                let mut handover_mqtt_client = E2LMqttClient::new(
                     hostname_2,
-                    "subscriber".to_string(),
+                    "handover_client".to_string(),
                     mqtt_variables,
                     e2l_crypto_clone_2,
                 );
                 let rt =
                     tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
-                rt.block_on(subscribe_mqtt_client.run());
+                rt.block_on(handover_mqtt_client.run_handover_client());
+            });
+            thread::spawn(|| {
+                let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
+                let mut control_mqtt_client = E2LMqttClient::new(
+                    hostname_3,
+                    "control_client".to_string(),
+                    mqtt_variables,
+                    e2l_crypto_clone_3,
+                );
+                let rt =
+                    tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
+                rt.block_on(control_mqtt_client.run_control_client());
             });
             /*****************
              * RPC SERVER    *

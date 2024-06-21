@@ -48,6 +48,12 @@ pub(crate) mod e2l_active_directory {
          * @return: None.
          */
         pub fn add_unassociated_dev(&mut self, dev_eui: String, dev_addr: String, e2gw_id: String) {
+            if self.unassociated_dev_info.contains_key(&dev_addr) {
+                return;
+            }
+            if self.associated_dev_info.contains_key(&dev_addr) {
+                self.associated_dev_info.remove(&dev_addr);
+            }
             self.unassociated_dev_info.insert(
                 dev_addr.clone(),
                 UnassociatedDevInfo {
@@ -74,6 +80,12 @@ pub(crate) mod e2l_active_directory {
             edge_s_enc_key: AES128,
             edge_s_int_key: AES128,
         ) {
+            if self.associated_dev_info.contains_key(&dev_addr) {
+                return;
+            }
+            if self.unassociated_dev_info.contains_key(&dev_addr) {
+                self.unassociated_dev_info.remove(&dev_addr);
+            }
             let dev_info_option = self.associated_dev_info.get(&dev_addr);
             let fncts: Vec<u16>;
             match dev_info_option {
@@ -84,6 +96,7 @@ pub(crate) mod e2l_active_directory {
                     fncts = Vec::new();
                 }
             }
+
             self.associated_dev_info.insert(
                 dev_addr.clone(),
                 AssociatedDevInfo {

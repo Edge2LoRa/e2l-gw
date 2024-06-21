@@ -45,6 +45,9 @@ pub(crate) mod e2l_crypto {
     use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{
         MqttJson, UnassociatedMqttJson,
     };
+    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{
+        NewAssignedDevice, NewUnassociatedDevice,
+    };
     use crate::lorawan_structs::lorawan_structs::lora_structs::RxpkContent;
 
     // ACTIVE DIRECTORY
@@ -360,6 +363,20 @@ pub(crate) mod e2l_crypto {
             }
         }
 
+        pub fn remove_assigned_device(&self, dev_addr: String) {
+            let mut active_directory: MutexGuard<E2LActiveDirectory> =
+                self.active_directory_mutex.lock().unwrap();
+            active_directory.remove_associated_dev(&dev_addr.clone());
+            std::mem::drop(active_directory);
+        }
+
+        pub fn remove_unassigned_device(&self, dev_addr: String) {
+            let mut active_directory: MutexGuard<E2LActiveDirectory> =
+                self.active_directory_mutex.lock().unwrap();
+            active_directory.remove_unassociated_dev(&dev_addr.clone());
+            std::mem::drop(active_directory);
+        }
+
         pub fn remove_e2device(&self, dev_addr: String) -> E2lData {
             let mut active_directory: MutexGuard<E2LActiveDirectory> =
                 self.active_directory_mutex.lock().unwrap();
@@ -379,6 +396,54 @@ pub(crate) mod e2l_crypto {
                 timetag: 0,
             };
             return response;
+        }
+
+        pub fn add_assigned_device(&self, device: NewAssignedDevice) {
+            let dev_eui = device.dev_eui;
+            let dev_addr = device.dev_addr;
+            let active_directory: MutexGuard<E2LActiveDirectory> =
+                self.active_directory_mutex.lock().unwrap();
+            let already_existing = active_directory.is_associated_dev(&dev_addr.clone());
+            std::mem::drop(active_directory);
+            if already_existing {
+                return;
+            }
+            // Create fake priv pub device key
+            let dev_fake_private_key = Some(P256SecretKey::random(&mut OsRng));
+            let dev_fake_public_key: P256PublicKey<p256::NistP256> =
+                Some(dev_fake_private_key.clone().unwrap().public_key()).unwrap();
+            let edge_s_enc_key_vec: Vec<u8> = device.edge_s_enc_key;
+            let edge_s_enc_key_bytes: [u8; 16] = edge_s_enc_key_vec.try_into().unwrap();
+            let edge_s_enc_key: AES128 = AES128::from(edge_s_enc_key_bytes.clone());
+
+            // GET Device sessions keys
+            let edge_s_int_key_vec: Vec<u8> = device.edge_s_int_key;
+            let edge_s_int_key_bytes: [u8; 16] = edge_s_int_key_vec.try_into().unwrap();
+            let edge_s_int_key: AES128 = AES128::from(edge_s_int_key_bytes.clone());
+
+            // Add Info to dev info struct
+            let mut active_directory: MutexGuard<E2LActiveDirectory> =
+                self.active_directory_mutex.lock().unwrap();
+            active_directory.add_associated_dev(
+                dev_eui,
+                dev_addr,
+                dev_fake_public_key,
+                edge_s_enc_key,
+                edge_s_int_key,
+            );
+            std::mem::drop(active_directory);
+        }
+
+        pub fn add_unassigned_device(&self, device: NewUnassociatedDevice) {
+            let dev_eui = device.dev_eui;
+            let dev_addr = device.dev_addr;
+            let assigned_gw = device.assigned_gw;
+
+            // Check if device is assigned to the current gw
+            let mut active_directory: MutexGuard<E2LActiveDirectory> =
+                self.active_directory_mutex.lock().unwrap();
+            active_directory.add_unassociated_dev(dev_eui, dev_addr, assigned_gw);
+            std::mem::drop(active_directory);
         }
 
         pub fn add_devices(&self, device_list: Vec<Device>) -> GwResponse {
