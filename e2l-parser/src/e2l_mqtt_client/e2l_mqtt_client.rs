@@ -19,6 +19,7 @@ pub(crate) mod e2l_mqtt_client {
         pub broker_auth_password: String,
         pub broker_process_topic: String,
         pub broker_handover_topic: String,
+        pub broker_control_topic: String,
         pub broker_qos: i32,
     }
     #[derive(Debug, Serialize, Deserialize)]
@@ -87,6 +88,7 @@ pub(crate) mod e2l_mqtt_client {
         mqtt_client: mqtt::AsyncClient,
         mqtt_process_topic: String,
         mqtt_handover_base_topic: String,
+        mqtt_control_topic: String,
         mqtt_qos: i32,
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
     }
@@ -132,6 +134,7 @@ pub(crate) mod e2l_mqtt_client {
                 mqtt_client: mqtt_client,
                 mqtt_process_topic: mqtt_variables.broker_process_topic,
                 mqtt_handover_base_topic: handover_base_topic,
+                mqtt_control_topic: mqtt_variables.broker_control_topic,
                 mqtt_qos: mqtt_variables.broker_qos,
                 e2l_crypto: e2l_crypto,
             }
@@ -204,7 +207,7 @@ pub(crate) mod e2l_mqtt_client {
         }
 
         pub async fn run_control_client(&mut self) {
-            let subscribe_topic: String = format!("control/+");
+            let subscribe_topic: String = format!("{}", self.mqtt_control_topic);
             let mut strm = self.mqtt_client.get_stream(25);
             self.mqtt_client.subscribe(subscribe_topic, self.mqtt_qos);
 

@@ -103,6 +103,7 @@ pub(crate) mod e2l_module {
                 broker_auth_name: dotenv::var("BROKER_AUTH_USERNAME").unwrap(),
                 broker_auth_password: dotenv::var("BROKER_AUTH_PASSWORD").unwrap(),
                 broker_process_topic: dotenv::var("BROKER_PROCESS_TOPIC").unwrap(),
+                broker_control_topic: dotenv::var("BROKER_CONTROL_TOPIC").unwrap(),
                 broker_handover_topic: dotenv::var("BROKER_HANDOVER_BASE_TOPIC").unwrap(),
                 broker_qos: dotenv::var("BROKER_QOS").unwrap().parse::<i32>().unwrap(),
             }
