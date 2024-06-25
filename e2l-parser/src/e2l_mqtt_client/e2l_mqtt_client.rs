@@ -207,7 +207,7 @@ pub(crate) mod e2l_mqtt_client {
         }
 
         pub async fn run_control_client(&mut self) {
-            let subscribe_topic: String = format!("{}", self.mqtt_control_topic);
+            let subscribe_topic: String = format!("{}/*", self.mqtt_control_topic);
             let mut strm = self.mqtt_client.get_stream(25);
             self.mqtt_client.subscribe(subscribe_topic, self.mqtt_qos);
 
@@ -221,7 +221,8 @@ pub(crate) mod e2l_mqtt_client {
                             println!("INFO: Message: {}", payload_str);
                             // Split topic at /
                             let topic_parts: Vec<&str> = topic.split("/").collect();
-                            let command = topic_parts[1];
+                            // get last elem
+                            let command = topic_parts[topic_parts.len() - 1];
                             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
                             match command {
                                 "add_assigned_device" => {
