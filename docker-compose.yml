@@ -28,7 +28,7 @@ services:
 
   e2l_parser:
     hostname: e2l-gw-${GW_ID}
-    image: ghcr.io/edge2lora/e2l-parser:load-balancing-3
+    image: ghcr.io/edge2lora/e2l-parser:load-balancing-4
     depends_on:
       - e2l_gw_broker
     env_file:

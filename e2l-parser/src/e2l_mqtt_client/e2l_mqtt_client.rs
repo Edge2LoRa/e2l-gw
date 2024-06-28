@@ -67,8 +67,8 @@ pub(crate) mod e2l_mqtt_client {
     pub struct NewAssignedDevice {
         pub dev_eui: String,
         pub dev_addr: String,
-        pub edge_s_enc_key: Vec<u8>,
-        pub edge_s_int_key: Vec<u8>,
+        pub edge_s_enc_key: String,
+        pub edge_s_int_key: String,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -223,7 +223,6 @@ pub(crate) mod e2l_mqtt_client {
                             let topic_parts: Vec<&str> = topic.split("/").collect();
                             // get last elem
                             let command = topic_parts[topic_parts.len() - 1];
-                            let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
                             match command {
                                 "add_assigned_device" => {
                                     println!("INFO: Command 'add_assigned_device' received");
@@ -293,7 +292,6 @@ pub(crate) mod e2l_mqtt_client {
                                     println!("INFO: Unknown command received");
                                 }
                             }
-                            std::mem::drop(e2l_crypto);
                         }
                         None => {
                             println!("Lost connection. Attempting reconnect.");
