@@ -167,10 +167,21 @@ pub(crate) mod e2l_mqtt_client {
             }
         }
 
+        pub async fn _publish_to_control(&self, command: String, mqtt_payload_str: String) {
+            let topic_string = format!("{}/{}", self.mqtt_control_topic, command);
+            let mqtt_control_topic =
+                mqtt::Topic::new(&self.mqtt_client, topic_string, self.mqtt_qos);
+            // println!("INFO: Publishing to control topic");
+            let tok: mqtt::DeliveryToken = mqtt_control_topic.publish(mqtt_payload_str);
+            if let Err(e) = tok.await {
+                println!("Error sending message: {:?}", e);
+            }
+        }
+
         pub async fn run_handover_client(&mut self) {
             let subscribe_topic: String =
                 format!("{}/{}", self.mqtt_handover_base_topic.clone(), self.gw_id);
-            let mut strm = self.mqtt_client.get_stream(25);
+            let mut strm = self.mqtt_client.get_stream(128);
             self.mqtt_client.subscribe(subscribe_topic, self.mqtt_qos);
 
             if let Err(err) = block_on(async {
@@ -208,8 +219,8 @@ pub(crate) mod e2l_mqtt_client {
 
         pub async fn run_control_client(&mut self) {
             let subscribe_topic: String = format!("{}", self.mqtt_control_topic);
-            let mut strm = self.mqtt_client.get_stream(25);
-            self.mqtt_client.subscribe(subscribe_topic, self.mqtt_qos);
+            let mut strm = self.mqtt_client.get_stream(128);
+            let _token = self.mqtt_client.subscribe(subscribe_topic, self.mqtt_qos);
 
             if let Err(err) = block_on(async {
                 while let Some(msg_opt) = strm.next().await {
