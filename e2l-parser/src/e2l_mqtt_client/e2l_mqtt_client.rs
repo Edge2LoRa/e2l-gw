@@ -160,7 +160,7 @@ pub(crate) mod e2l_mqtt_client {
                 self.mqtt_process_topic.clone(),
                 self.mqtt_qos,
             );
-            // println!("INFO: Publishing to process topic");
+            println!("INFO: Publishing to process topic: {}", mqtt_payload_str);
             let tok: mqtt::DeliveryToken = mqtt_process_topic.publish(mqtt_payload_str);
             if let Err(e) = tok.await {
                 println!("Error sending message: {:?}", e);

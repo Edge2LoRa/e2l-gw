@@ -278,6 +278,7 @@ pub(crate) mod e2l_module {
             let is_active: bool;
             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
             is_active = e2l_crypto.is_active();
+            std::mem::drop(e2l_crypto);
             if is_active {
                 // get epoch time
                 let start = SystemTime::now();
@@ -286,10 +287,13 @@ pub(crate) mod e2l_module {
                     .expect("Time went backwards");
 
                 // Check if enabled E2ED
+                let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
                 let e2ed_enabled: bool = (f_port == DEFAULT_E2L_APP_PORT)
                     && e2l_crypto.check_e2ed_enabled(dev_addr_string.clone());
+                std::mem::drop(e2l_crypto);
 
                 if e2ed_enabled {
+                    let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
                     let mqtt_payload_option = e2l_crypto.get_json_mqtt_payload(
                         dev_addr_string.clone(),
                         fcnt,
@@ -298,6 +302,7 @@ pub(crate) mod e2l_module {
                         gwmac,
                         None,
                     );
+                    std::mem::drop(e2l_crypto);
                     match mqtt_payload_option {
                         Some(mqtt_payload) => {
                             if !self.ignore_logs_flag {
@@ -332,6 +337,11 @@ pub(crate) mod e2l_module {
                             }
                             let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                 .unwrap_or_else(|_| "Error".to_string());
+                            println!(
+                                "Sending to process: {}
+                            ",
+                                mqtt_payload_str
+                            );
                             mqtt_client
                                 .publish_to_process(mqtt_payload_str.clone())
                                 .await;
@@ -344,6 +354,7 @@ pub(crate) mod e2l_module {
                 } else {
                     match f_port {
                         port if port == DEFAULT_E2L_APP_PORT => {
+                            let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
                             let mqtt_payload_option = e2l_crypto
                                 .get_unassociated_json_mqtt_payload(
                                     dev_addr_string.clone(),
@@ -351,6 +362,7 @@ pub(crate) mod e2l_module {
                                     packet,
                                     gwmac,
                                 );
+                            std::mem::drop(e2l_crypto);
 
                             match mqtt_payload_option {
                                 Some(mqtt_payload) => {
@@ -385,57 +397,7 @@ pub(crate) mod e2l_module {
                                     mqtt_client.publish_to_handover(gw_id, mqtt_payload_str);
                                     will_send = false;
                                 }
-                                None => {
-                                    let fwinfo = self.fwinfo.lock().expect("Could not lock!");
-                                    match fwinfo.forward_protocol {
-                                        ForwardProtocols::UDP => {
-                                            Self::debug(format!(
-                                                "Forwarding to {:x?}",
-                                                fwinfo.forward_host.clone()
-                                            ));
-
-                                            Self::debug(format!(
-                                                "Forwarding Legacy Frame to {}",
-                                                dev_addr.clone()
-                                            ));
-
-                                            if !self.ignore_logs_flag {
-                                                let hostname =
-                                                    self.hostname.lock().expect("Could not lock!");
-                                                let log_request: tonic::Request<GwLog> =
-                                                    tonic::Request::new(GwLog {
-                                                        gw_id: hostname.clone(),
-                                                        dev_addr: dev_addr_string.clone(),
-                                                        log: format!(
-                                                            "Received Legacy Frame from {}",
-                                                            dev_addr.clone()
-                                                        ),
-                                                        frame_type: LEGACY_FRAME_ID,
-                                                        fcnt: fcnt as u64,
-                                                        timetag: timetag.as_millis() as u64,
-                                                    });
-                                                std::mem::drop(hostname);
-                                                let mut rpc_client = self
-                                                    .rpc_client
-                                                    .lock()
-                                                    .expect("Could not lock.");
-                                                rpc_client
-                                                    .gw_log(log_request)
-                                                    .await
-                                                    .expect("Error sending logs!");
-                                                std::mem::drop(rpc_client);
-                                            }
-                                            unsafe {
-                                                LEGACY_FRAMES_NUM = LEGACY_FRAMES_NUM + 1;
-                                                LEGACY_FRAMES_FCNTS.push(FcntStruct {
-                                                    dev_addr: dev_addr_string.clone(),
-                                                    fcnt: fcnt as u64,
-                                                });
-                                            }
-                                        } // _ => panic!("Forwarding protocol not implemented!"),
-                                    }
-                                    std::mem::drop(fwinfo);
-                                }
+                                None => {}
                             }
                             unsafe {
                                 EDGE_NOT_PROCESSED_FRAMES_NUM = EDGE_NOT_PROCESSED_FRAMES_NUM + 1;
@@ -502,7 +464,6 @@ pub(crate) mod e2l_module {
                 Self::debug(format!("Not forwarding packet, GW NOT Active",));
                 return None;
             }
-            std::mem::drop(e2l_crypto);
             return Some(will_send);
         }
     }

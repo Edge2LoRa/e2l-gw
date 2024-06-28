@@ -429,12 +429,16 @@ pub(crate) mod e2l_crypto {
                 self.active_directory_mutex.lock().unwrap();
             active_directory.add_associated_dev(
                 dev_eui,
-                dev_addr,
+                dev_addr.clone(),
                 dev_fake_public_key,
                 edge_s_enc_key,
                 edge_s_int_key,
             );
             std::mem::drop(active_directory);
+            println!(
+                "Added dev addr: {:?} to active directory ASSIGNED.",
+                dev_addr.clone()
+            );
         }
 
         pub fn add_unassigned_device(&self, device: NewUnassociatedDevice) {
@@ -445,8 +449,13 @@ pub(crate) mod e2l_crypto {
             // Check if device is assigned to the current gw
             let mut active_directory: MutexGuard<E2LActiveDirectory> =
                 self.active_directory_mutex.lock().unwrap();
-            active_directory.add_unassociated_dev(dev_eui, dev_addr, assigned_gw);
+            active_directory.add_unassociated_dev(dev_eui, dev_addr.clone(), assigned_gw);
             std::mem::drop(active_directory);
+            println!(
+                "Added dev addr: {:?}
+                to active directory UNASSIGNED.",
+                dev_addr.clone()
+            );
         }
 
         pub fn add_devices(&self, device_list: Vec<Device>) -> GwResponse {

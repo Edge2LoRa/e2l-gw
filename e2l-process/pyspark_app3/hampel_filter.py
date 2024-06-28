@@ -70,6 +70,8 @@ def check_env_vars() -> bool:
 
 # Function to perform the Hampel filter
 def hampel_filter(data, window_size, n_sigma, aggr_start_time):
+    print("STARTING HAMPEL FILTER COMPUTATION")
+    print("Received Data:", data.count())
     window = (
         Window.partitionBy("dev_addr")
         .orderBy("timestamp")
@@ -89,6 +91,7 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
     outliers = data.filter("is_outlier")
     # print("Outlier detected: ", outliers.count())
     print([row.timestamp for row in data.select("timestamp").collect()])
+    print("Outliers: ", outliers.count())
     if outliers.count() > 0:
         outliers_detected = outliers.select("dev_addr", "fcnt").collect()
         json_outliers = [
@@ -107,6 +110,7 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
             "aggr_start_time": int(aggr_start_time * 1000),
         }
         publish_output_spark(json_payload)
+    print("HAMPEL FILTER COMPUTATION FINISHED")
 
 
 # Function to publish output via MQTT
@@ -116,7 +120,7 @@ def publish_output_spark(payload):
     client.connect(os.getenv("MQTT_BROKER_HOST"), int(os.getenv("MQTT_BROKER_PORT")))
     client.loop_start()
     json_reading = json.dumps(payload)
-    print("sto publicando")
+    print("PUBLISHING PROCESS OUTPUT")
     client.publish(os.getenv("MQTT_TOPIC_OUTPUT"), json_reading)
     client.disconnect()
     client.loop_stop()
@@ -145,6 +149,7 @@ schema = StructType(
 
 # Process readings
 def process_readings(rdd):
+    print("PROCESSING AGGREGATION!")
     aggr_start_time = time.time()
     batch_df = spark.read.schema(schema).json(rdd)
     extract_temp = F.udf(

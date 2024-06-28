@@ -86,16 +86,7 @@ pub(crate) mod e2l_active_directory {
             if self.unassociated_dev_info.contains_key(&dev_addr) {
                 self.unassociated_dev_info.remove(&dev_addr);
             }
-            let dev_info_option = self.associated_dev_info.get(&dev_addr);
-            let fncts: Vec<u16>;
-            match dev_info_option {
-                Some(dev_info) => {
-                    fncts = dev_info.fcnts.clone();
-                }
-                None => {
-                    fncts = Vec::new();
-                }
-            }
+            let fncts: Vec<u16> = Vec::new();
 
             self.associated_dev_info.insert(
                 dev_addr.clone(),
