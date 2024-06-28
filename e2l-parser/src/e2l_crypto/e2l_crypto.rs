@@ -414,17 +414,13 @@ pub(crate) mod e2l_crypto {
                 Some(dev_fake_private_key.clone().unwrap().public_key()).unwrap();
             // let edge_s_enc_key_vec: Vec<u8> = device.edge_s_enc_key.into_bytes();
             // EDGE S ENC KEY
-            let edge_s_enc_key_vec: Vec<u8> = general_purpose::STANDARD
-                .decode(device.edge_s_enc_key)
-                .unwrap();
+            let edge_s_enc_key_vec: Vec<u8> = hex::decode(device.edge_s_enc_key).unwrap();
             let edge_s_enc_key_bytes: [u8; 16] = edge_s_enc_key_vec.try_into().unwrap();
             let edge_s_enc_key: AES128 = AES128::from(edge_s_enc_key_bytes.clone());
 
             // EDGE S INT KEY
             // let edge_s_int_key_vec: Vec<u8> = device.edge_s_int_key.into_bytes();
-            let edge_s_int_key_vec: Vec<u8> = general_purpose::STANDARD
-                .decode(device.edge_s_int_key)
-                .unwrap();
+            let edge_s_int_key_vec: Vec<u8> = hex::decode(device.edge_s_int_key).unwrap();
             let edge_s_int_key_bytes: [u8; 16] = edge_s_int_key_vec.try_into().unwrap();
             let edge_s_int_key: AES128 = AES128::from(edge_s_int_key_bytes.clone());
 
