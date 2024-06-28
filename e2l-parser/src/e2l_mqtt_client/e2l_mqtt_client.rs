@@ -207,7 +207,7 @@ pub(crate) mod e2l_mqtt_client {
         }
 
         pub async fn run_control_client(&mut self) {
-            let subscribe_topic: String = format!("{}/*", self.mqtt_control_topic);
+            let subscribe_topic: String = format!("{}", self.mqtt_control_topic);
             let mut strm = self.mqtt_client.get_stream(25);
             self.mqtt_client.subscribe(subscribe_topic, self.mqtt_qos);
 
