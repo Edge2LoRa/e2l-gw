@@ -291,6 +291,12 @@ pub(crate) mod e2l_module {
                 let e2ed_enabled: bool = (f_port == DEFAULT_E2L_APP_PORT)
                     && e2l_crypto.check_e2ed_enabled(dev_addr_string.clone());
                 std::mem::drop(e2l_crypto);
+                println!(
+                    "Device {} E2L-enabled: {}
+                ",
+                    dev_addr_string.clone(),
+                    e2ed_enabled.clone()
+                );
 
                 if e2ed_enabled {
                     let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
@@ -347,6 +353,7 @@ pub(crate) mod e2l_module {
                                 .await;
                         }
                         _ => {
+                            println!("Error processing E2ED");
                             return None;
                         }
                     }

@@ -320,7 +320,10 @@ pub(crate) mod e2l_crypto {
                         }
                     }
                 }
-                None => return None,
+                None => {
+                    println!("Device {} not found in active directory", dev_addr.clone());
+                    return None;
+                }
             }
         }
 
@@ -436,7 +439,7 @@ pub(crate) mod e2l_crypto {
             );
             std::mem::drop(active_directory);
             println!(
-                "Added dev addr: {:?} to active directory ASSIGNED.",
+                "E2L CRYPTO: Added dev addr: {:?} to active directory ASSIGNED.",
                 dev_addr.clone()
             );
         }

@@ -243,6 +243,7 @@ pub(crate) mod e2l_mqtt_client {
                                                 self.e2l_crypto.lock().expect("Could not lock!");
                                             e2l_crypto.add_assigned_device(device);
                                             std::mem::drop(e2l_crypto);
+                                            println!("INFO: Assigned device added");
                                         }
                                         Err(_) => {
                                             println!("ERROR: Invalid JSON format for 'add_assigned_device' command");

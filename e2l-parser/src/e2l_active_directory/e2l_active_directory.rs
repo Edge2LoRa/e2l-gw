@@ -99,7 +99,7 @@ pub(crate) mod e2l_active_directory {
                     fcnts: fncts,
                 },
             );
-            println!("Associated device added: {}", dev_addr);
+            println!("ACTIVE DIRECTORY: Associated device added: {}", dev_addr);
         }
 
         /*
