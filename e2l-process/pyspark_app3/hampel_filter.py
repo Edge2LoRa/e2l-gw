@@ -91,7 +91,6 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
         "is_outlier", F.abs(F.col("soil_temp") - F.col("median")) > F.col("threshold")
     )
     outliers = data.filter("is_outlier")
-    # print("Outlier detected: ", outliers.count())
     print("Outliers: ", outliers.count())
     if outliers.count() > 0:
         outliers_detected = outliers.select("dev_addr", "fcnt").collect()
@@ -99,17 +98,14 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
             {"devaddr": row.dev_addr, "fcnt": row.fcnt} for row in outliers_detected
         ]
         json_payload = {
-            "devaddr": "0036D020",
+            "devaddr": "",
             "aggregated_data": json_outliers,
             "devaddrs": [row.dev_addr for row in data.select("dev_addr").collect()],
             "fcnts": [row.fcnt for row in data.select("fcnt").collect()],
             "rx_process_gw": list(
                 zip(data.select("rx_gw").collect(), data.select("process_gw").collect())
             ),
-            "timestamps": [
-                int(parser.parse(row.timestamp).timestamp() * 1000)
-                for row in data.select("timestamp").collect()
-            ],
+            "timestamps": [row.timestamp for row in data.select("timestamp").collect()],
             "timestamp_pub": int(time.time() * 1000),
             "aggr_start_time": int(aggr_start_time * 1000),
         }
@@ -160,10 +156,18 @@ def process_readings(rdd):
         lambda payload: float(b64.b64decode(payload).decode("utf-8")[:4]),
         DoubleType(),
     )
+    extract_timestamp = F.udf(
+        lambda timestamp: int(parser.parse(timestamp).timestamp() * 1000),
+        IntegerType(),
+    )
     batch_df = batch_df.withColumn("soil_temp", extract_temp(col("payload")))
 
     input_data = batch_df.select(
         "dev_addr", "fcnt", "timestamp", "soil_temp", "rx_gw", "process_gw"
+    )
+    input_data = input_data.withColumn(
+        "timestamp",
+        extract_timestamp(col("timestamp")),
     )
 
     window_size = int(os.getenv("WINDOW_SIZE_HAMPEL"))
