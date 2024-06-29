@@ -3,6 +3,7 @@ import findspark
 from pyspark import SparkContext, SparkConf
 from pyspark.streaming import StreamingContext
 from pyspark.sql import SparkSession, functions as F, Window
+from dateutil import parser
 from pyspark.sql.types import (
     StructType,
     StructField,
@@ -10,7 +11,7 @@ from pyspark.sql.types import (
     IntegerType,
     DoubleType,
 )
-from pyspark.sql.functions import to_unix_timestamp, col, lit
+from pyspark.sql.functions import col, lit
 from mqtt import MQTTUtils
 import os
 import json
@@ -105,7 +106,10 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
             "rx_process_gw": list(
                 zip(data.select("rx_gw").collect(), data.select("process_gw").collect())
             ),
-            "timestamps": [row.timestamp for row in data.select("timestamp").collect()],
+            "timestamps": [
+                parser.parse(row.timestamp).timestamp()
+                for row in data.select("timestamp").collect()
+            ],
             "timestamp_pub": int(time.time() * 1000),
             "aggr_start_time": int(aggr_start_time * 1000),
         }
@@ -157,21 +161,11 @@ def process_readings(rdd):
         DoubleType(),
     )
     batch_df = batch_df.withColumn("soil_temp", extract_temp(col("payload")))
-    # timestamp = batch_df.select("timestamp").withColumn(
-    #     "timestamp",
-    #     unix_timestamp("timestamp", format="yyyy-MM-dd'T'HH:mm:ss.SSS'Z'").cast(
-    #         "timestamp"
-    #     ),
-    # )
+
     input_data = batch_df.select(
         "dev_addr", "fcnt", "timestamp", "soil_temp", "rx_gw", "process_gw"
     )
-    input_data = input_data.withColumn(
-        "timestamp",
-        to_unix_timestamp(
-            timestamp="timestamp", format=lit("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'")
-        ),
-    )
+
     window_size = int(os.getenv("WINDOW_SIZE_HAMPEL"))
     n_sigma = 1.0
     hampel_filter(input_data, window_size, n_sigma, aggr_start_time)
