@@ -602,7 +602,7 @@ pub(crate) mod e2l_module {
             });
             std::mem::drop(hostname);
             // sleep 3 sec
-            std::thread::sleep(Duration::from_millis(2000));
+            std::thread::sleep(Duration::from_millis(10000));
             let mut rpc_client = self.rpc_client.lock().expect("Could not lock.");
             let response = rpc_client.store_e2gw_pub_info(request).await?;
             let status_code = response.get_ref().status_code;
