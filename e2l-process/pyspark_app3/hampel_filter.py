@@ -153,7 +153,7 @@ def process_readings(rdd):
     aggr_start_time = time.time()
     batch_df = spark.read.schema(schema).json(rdd)
     extract_temp = F.udf(
-        lambda payload: float(b64.b64decode(payload).decode("utf-8")[:4]),
+        lambda payload: json.loads(b64.b64decode(payload).decode("utf-8"))[0],
         DoubleType(),
     )
     extract_timestamp = F.udf(
