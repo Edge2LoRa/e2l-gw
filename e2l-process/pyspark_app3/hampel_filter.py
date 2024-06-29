@@ -157,7 +157,7 @@ def process_readings(rdd):
     aggr_start_time = time.time()
     batch_df = spark.read.schema(schema).json(rdd)
     extract_temp = F.udf(
-        lambda payload: json.loads(b64.b64decode(payload).decode("utf-8"))[0],
+        lambda payload: float(b64.b64decode(payload).decode("utf-8")[:4]),
         DoubleType(),
     )
     batch_df = batch_df.withColumn("soil_temp", extract_temp(col("payload")))
