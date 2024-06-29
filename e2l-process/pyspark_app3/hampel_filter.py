@@ -73,6 +73,8 @@ def check_env_vars() -> bool:
 def hampel_filter(data, window_size, n_sigma, aggr_start_time):
     print("STARTING HAMPEL FILTER COMPUTATION")
     print("Received Data:", data.count())
+    if data.count() == 0:
+        return
     window = (
         Window.partitionBy("dev_addr")
         .orderBy("timestamp")
@@ -88,10 +90,8 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
     data = data.withColumn(
         "is_outlier", F.abs(F.col("soil_temp") - F.col("median")) > F.col("threshold")
     )
-    # print("Received Data:", data.count())
     outliers = data.filter("is_outlier")
     # print("Outlier detected: ", outliers.count())
-    print([row.timestamp for row in data.select("timestamp").collect()])
     print("Outliers: ", outliers.count())
     if outliers.count() > 0:
         outliers_detected = outliers.select("dev_addr", "fcnt").collect()
@@ -107,7 +107,7 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
                 zip(data.select("rx_gw").collect(), data.select("process_gw").collect())
             ),
             "timestamps": [
-                parser.parse(row.timestamp).timestamp()
+                int(parser.parse(row.timestamp).timestamp() * 1000)
                 for row in data.select("timestamp").collect()
             ],
             "timestamp_pub": int(time.time() * 1000),

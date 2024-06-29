@@ -228,8 +228,6 @@ pub(crate) mod e2l_mqtt_client {
                         Some(msg) => {
                             let payload_str = msg.payload_str().to_string();
                             let topic = msg.topic();
-                            println!("INFO: Received message from control topic: {}", topic);
-                            println!("INFO: Message: {}", payload_str);
                             // Split topic at /
                             let topic_parts: Vec<&str> = topic.split("/").collect();
                             // get last elem

@@ -92,13 +92,14 @@ pub(crate) mod e2l_active_directory {
                 dev_addr.clone(),
                 AssociatedDevInfo {
                     dev_eui,
-                    dev_addr,
+                    dev_addr: dev_addr.clone(),
                     dev_public_key,
                     edge_s_enc_key,
                     edge_s_int_key,
                     fcnts: fncts,
                 },
             );
+            println!("Associated device added: {}", dev_addr);
         }
 
         /*
