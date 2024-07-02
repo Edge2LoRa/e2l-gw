@@ -142,10 +142,6 @@ pub(crate) mod e2l_mqtt_client {
 
         pub fn publish_to_handover(&self, gw_id: String, mqtt_payload_str: String) {
             let handover_topic = format!("{}/{}", self.mqtt_handover_base_topic, gw_id);
-            println!(
-                "INFO: Publishing to handover topic: {}",
-                handover_topic.clone()
-            );
             let mqtt_handover_topic =
                 mqtt::Topic::new(&self.mqtt_client, handover_topic, self.mqtt_qos);
             let tok: mqtt::DeliveryToken = mqtt_handover_topic.publish(mqtt_payload_str);
@@ -160,7 +156,6 @@ pub(crate) mod e2l_mqtt_client {
                 self.mqtt_process_topic.clone(),
                 self.mqtt_qos,
             );
-            println!("INFO: Publishing to process topic: {}", mqtt_payload_str);
             let tok: mqtt::DeliveryToken = mqtt_process_topic.publish(mqtt_payload_str);
             if let Err(e) = tok.await {
                 println!("Error sending message: {:?}", e);
@@ -171,7 +166,6 @@ pub(crate) mod e2l_mqtt_client {
             let topic_string = format!("{}/{}", self.mqtt_control_topic, command);
             let mqtt_control_topic =
                 mqtt::Topic::new(&self.mqtt_client, topic_string, self.mqtt_qos);
-            // println!("INFO: Publishing to control topic");
             let tok: mqtt::DeliveryToken = mqtt_control_topic.publish(mqtt_payload_str);
             if let Err(e) = tok.await {
                 println!("Error sending message: {:?}", e);
@@ -194,7 +188,6 @@ pub(crate) mod e2l_mqtt_client {
                             let ret = e2l_crypto
                                 .handover_callback(topic.to_string(), msg_str.to_string());
                             std::mem::drop(e2l_crypto);
-                            println!("INFO: Received message from handover topic");
                             match ret {
                                 Some(payload) => self.publish_to_process(payload).await,
                                 None => (),

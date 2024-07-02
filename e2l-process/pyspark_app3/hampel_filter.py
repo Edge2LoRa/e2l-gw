@@ -11,7 +11,7 @@ from pyspark.sql.types import (
     IntegerType,
     DoubleType,
 )
-from pyspark.sql.functions import col, lit
+from pyspark.sql.functions import col, percentile_approx, count
 from mqtt import MQTTUtils
 import os
 import json
@@ -54,6 +54,7 @@ def check_env_vars() -> bool:
         "WINDOW_LENGTH",
         "SLIDE_INTERVAL",
         "WINDOW_SIZE_HAMPEL",
+        "N_SIGMA",
     ]
     for var in env_vars:
         if os.getenv(var) is None:
@@ -75,11 +76,11 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
     print("Received Data:", data.count())
     if data.count() == 0:
         return
+
     window = (
-        Window.partitionBy("dev_addr")
-        .orderBy("timestamp")
-        .rangeBetween(-window_size, 0)
+        Window.partitionBy("dev_addr").orderBy("timestamp").rowsBetween(-window_size, 0)
     )
+
     data = data.withColumn(
         "median", F.expr("percentile_approx(soil_temp, 0.5)").over(window)
     )
@@ -90,8 +91,27 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
     data = data.withColumn(
         "is_outlier", F.abs(F.col("soil_temp") - F.col("median")) > F.col("threshold")
     )
+    # print("DEV ADDR")
+    # print([row.dev_addr for row in data.select("dev_addr").collect()])
+    # print("\n")
+    # print("TIMESTAMP")
+    # print([row.timestamp for row in data.select("timestamp").collect()])
+    # print("\n")
+    # print("VALUES")
+    # print([row.soil_temp for row in data.select("soil_temp").collect()])
+    # print("\n")
+    # print("MEDIAN")
+    # print([row.median for row in data.select("median").collect()])
+    # print("\n")
+    print("MAD")
+    print([row.mad for row in data.select("mad").collect()])
+    print("\n")
+    print("THRSHOLD")
+    print([row.threshold for row in data.select("threshold").collect()])
+
     outliers = data.filter("is_outlier")
     print("Outliers: ", outliers.count())
+    json_payload = {}
     if outliers.count() > 0:
         outliers_detected = outliers.select("dev_addr", "fcnt").collect()
         json_outliers = [
@@ -109,7 +129,21 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
             "timestamp_pub": int(time.time() * 1000),
             "aggr_start_time": int(aggr_start_time * 1000),
         }
-        publish_output_spark(json_payload)
+    else:
+        json_payload = {
+            "devaddr": "",
+            "aggregated_data": [],
+            "devaddrs": [row.dev_addr for row in data.select("dev_addr").collect()],
+            "fcnts": [row.fcnt for row in data.select("fcnt").collect()],
+            "rx_process_gw": list(
+                zip(data.select("rx_gw").collect(), data.select("process_gw").collect())
+            ),
+            "timestamps": [row.timestamp for row in data.select("timestamp").collect()],
+            "timestamp_pub": int(time.time() * 1000),
+            "aggr_start_time": int(aggr_start_time * 1000),
+        }
+    publish_output_spark(json_payload)
+
     print("HAMPEL FILTER COMPUTATION FINISHED")
 
 
@@ -171,7 +205,7 @@ def process_readings(rdd):
     )
 
     window_size = int(os.getenv("WINDOW_SIZE_HAMPEL"))
-    n_sigma = 1.0
+    n_sigma = float(os.getenv("N_SIGMA"))
     hampel_filter(input_data, window_size, n_sigma, aggr_start_time)
 
 
@@ -187,6 +221,13 @@ readings = MQTTUtils.createStream(
     os.getenv("MQTT_TOPIC"),
     os.getenv("MQTT_USERNAME"),
     os.getenv("MQTT_PASSWORD"),
+)
+
+print(readings)
+print(
+    int(os.getenv("WINDOW_LENGTH")),
+    int(os.getenv("SLIDE_INTERVAL")),
+    int(os.getenv("WINDOW_SIZE_HAMPEL")),
 )
 
 # Process each RDD in the stream
