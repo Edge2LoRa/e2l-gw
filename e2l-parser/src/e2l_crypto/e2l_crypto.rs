@@ -271,7 +271,7 @@ pub(crate) mod e2l_crypto {
             match dev_info_option {
                 Some(dev_info) => {
                     if dev_info.fcnts.contains(&fcnt) {
-                        println!("INFO: Duplicate packet, not processing");
+                        // println!("INFO: Duplicate packet, not processing");
                         return None;
                     }
                     // GET KEYS
@@ -579,7 +579,7 @@ pub(crate) mod e2l_crypto {
                             return Some(mqtt_payload_str);
                         }
                         None => {
-                            println!("Not processing: Error while parsing JSON to send to Process topic.");
+                            // println!("Not processing: Error while parsing JSON to send to Process topic.");
                             return None;
                         }
                     }
