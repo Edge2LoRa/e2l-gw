@@ -123,7 +123,10 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
             "devaddrs": [row.dev_addr for row in data.select("dev_addr").collect()],
             "fcnts": [row.fcnt for row in data.select("fcnt").collect()],
             "rx_process_gw": list(
-                zip(data.select("rx_gw").collect(), data.select("process_gw").collect())
+                zip(
+                    [row.rx_gw for row in data.select("rx_gw").collect()],
+                    [row.process_gw for row in data.select("process_gw").collect()],
+                )
             ),
             "timestamps": [row.timestamp for row in data.select("timestamp").collect()],
             "timestamp_pub": int(time.time() * 1000),
