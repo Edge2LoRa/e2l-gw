@@ -93,6 +93,74 @@ pub(crate) mod e2l_mqtt_client {
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
     }
 
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct MqttBridgeResourceOpts {
+        max_buffer_size: u32,
+        query_mode: String,
+        health_check_interval: String,
+    }
+    impl Default for MqttBridgeResourceOpts {
+        fn default() -> Self {
+            MqttBridgeResourceOpts {
+                max_buffer_size: 104857600,
+                query_mode: "sync".to_string(),
+                health_check_interval: "15s".to_string(),
+            }
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct MqqtBridgeSslConfig {
+        pub enable: bool,
+    }
+    impl Default for MqqtBridgeSslConfig {
+        fn default() -> Self {
+            MqqtBridgeSslConfig { enable: false }
+        }
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct MqttBridgeRemoteOpts {
+        pub topic: String,
+        pub qos: u32,
+        pub retain: String,
+        pub payload: String,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct MqttBridgeLocalOpts {
+        pub topic: String,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct MqttBridgeEgressOpts {
+        pool_size: u32,
+        remote: MqttBridgeRemoteOpts,
+        local: MqttBridgeLocalOpts,
+    }
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct MqttBridgeIngressOpts {
+        pool_size: u32,
+        local: MqttBridgeRemoteOpts,
+        remote: MqttBridgeLocalOpts,
+    }
+        
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct MqttBridgeEgressConfig {
+        pub name: String,
+        pub type_: String,
+        pub enable: bool,
+        pub resource_opts: MqttBridgeResourceOpts,
+        pub server: String,
+        pub proto_ver: String,
+        pub username: String,
+        pub password: String,
+        pub ssl: MqqtBridgeSslConfig,
+        pub egress: MqttBridgeEgressOpts,
+    }
+    // TODO: FINISH IMPLEMENTING THE DEFAULT FOR THE STRUCTS
+
+
+
     impl E2LMqttClient {
         pub fn new(
             gw_id: String,

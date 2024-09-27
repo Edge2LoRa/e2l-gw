@@ -3,15 +3,26 @@ version: "3"
 services:
   e2l_gw_broker:
     hostname: e2l-gw-broker-${GW_ID}
-    image: e2l-gw-broker:v1.0.0
-    ports:
-      - "10883:1883"
-    volumes:
-      - ./e2l-gw-broker/config/mosquitto.conf:/mosquitto/config/mosquitto.conf
-      - ./e2l-gw-broker/data/:/mosquitto/data/
-      - ./e2l-gw-broker/log/:/mosquitto/log/
+    image: emqx/emqx:5.8.0
+    container_name: e2l-gw-broker
+    # environment:
+    #   - "EMQX_NODE_NAME=emqx@e2l-gw-broker.e2l_network"
+    # healthcheck:
+    #   test: ["CMD", "/opt/emqx/bin/emqx", "ctl", "status"]
+    #   interval: 5s
+    #   timeout: 25s
+    #   retries: 5
     networks:
       - e2l_network
+    ports:
+      - 10893:1883
+      - 8093:8083
+      - 8094:8084
+      - 18893:8883
+      - 18093:18083
+    volumes:
+      - ./e2l-gw-broker/data/:/opt/emqx/data
+      - ./e2l-gw-broker/log/:/opt/emqx/log
 
   e2l_process:
     hostname: e2l-process-${GW_ID}

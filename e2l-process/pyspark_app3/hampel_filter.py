@@ -73,6 +73,7 @@ def check_env_vars() -> bool:
 # Function to perform the Hampel filter
 def hampel_filter(data, window_size, n_sigma, aggr_start_time):
     print("STARTING HAMPEL FILTER COMPUTATION")
+    start_time = time.time()
     print("Received Data:", data.count())
     if data.count() == 0:
         return
@@ -145,6 +146,9 @@ def hampel_filter(data, window_size, n_sigma, aggr_start_time):
             "timestamp_pub": int(time.time() * 1000),
             "aggr_start_time": int(aggr_start_time * 1000),
         }
+
+    end_time = time.time()
+    print(f"Computation time: {end_time - start_time} seconds")
     publish_output_spark(json_payload)
 
     print("HAMPEL FILTER COMPUTATION FINISHED")

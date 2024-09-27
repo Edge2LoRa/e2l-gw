@@ -600,6 +600,11 @@ pub(crate) mod e2l_module {
             }
             std::mem::drop(rpc_client);
 
+            /********************
+             * CREATE AS BRIDGE *
+             ********************/
+            // TODO: This is a placeholder for the actual implementation
+
             /**********************
              * TTS UDP CONNECTION *
              **********************/
