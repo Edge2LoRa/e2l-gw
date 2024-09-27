@@ -1,0 +1,318 @@
+# Import necessary libraries
+import findspark
+from pyspark import SparkContext, SparkConf
+from pyspark.streaming import StreamingContext
+from pyspark.sql import SparkSession, functions as F, Window
+from dateutil import parser
+from pyspark.sql.types import (
+    StructType,
+    StructField,
+    StringType,
+    IntegerType,
+    DoubleType,
+)
+from pyspark.sql.functions import col, percentile_approx, count
+from mqtt import MQTTUtils
+import os
+import json
+import time
+import logging
+import base64 as b64
+import paho.mqtt.client as mqtt
+
+# Initialize Spark
+findspark.init()
+core_number = os.getenv("CORE_NUMBER", "2")  # number of cores
+spark_conf = SparkConf().setAppName("e2l-process").setMaster(f"local[{core_number}]")
+sc = SparkContext(conf=spark_conf)
+sc.setLogLevel("ERROR")
+spark = SparkSession(sc)
+ssc = StreamingContext(sc, 5)  # 5-sec batch interval
+
+# Set up env variables
+log = logging.getLogger(__name__)
+DEBUG = os.getenv("DEBUG", False)
+DEBUG = True if DEBUG == "1" else False
+if DEBUG:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+    log.setLevel(logging.INFO)
+else:
+    log.setLevel(logging.INFO)
+
+
+# Function to check environment variables
+def check_env_vars() -> bool:
+    env_vars = [
+        "MQTT_USERNAME",
+        "MQTT_PASSWORD",
+        "MQTT_BROKER_HOST",
+        "MQTT_BROKER_PORT",
+        "MQTT_TOPIC",
+        "MQTT_TOPIC_OUTPUT",
+        "WINDOW_LENGTH",
+        "SLIDE_INTERVAL",
+        "WINDOW_SIZE_HAMPEL",
+        "N_SIGMA",
+    ]
+    for var in env_vars:
+        if os.getenv(var) is None:
+            log.error(f"{var} not set")
+            exit(1)
+        if "_PORT" in var:
+            if not os.getenv(var).isnumeric():
+                log.error(f"{var} must be numeric")
+                exit(1)
+            if int(os.getenv(var)) < 0 or int(os.getenv(var)) > 65535:
+                log.error(f"{var} must be between 0 and 65535")
+                exit(1)
+    return True
+
+
+# Function to perform the Hampel filter
+def hampel_filter(data, window_size, n_sigma, aggr_start_time):
+    print("STARTING HAMPEL FILTER COMPUTATION")
+    start_time = time.time()
+    # received_data = data.count()
+    # print("Received Data:", received_data)
+    # if received_data == 0:
+    #     return
+
+    extract_temp = F.udf(
+        lambda payload: json.loads(b64.b64decode(payload).decode("utf-8"))[0],
+        DoubleType(),
+    )
+    window = (
+        Window.partitionBy("dev_addr").orderBy("timestamp").rowsBetween(-window_size, 0)
+    )
+    data = (
+        data.withColumn("soil_temp", extract_temp(col("payload")))
+        .withColumn("median", F.expr("percentile_approx(soil_temp, 0.5)").over(window))
+        .withColumn(
+            "mad",
+            F.expr("percentile_approx(abs(soil_temp - median), 0.5)").over(window),
+        )
+        .withColumn("threshold", n_sigma * 1.4826 * F.col("mad"))
+    )
+
+    timestamps = []
+    dev_addrs = []
+    fcnts = []
+    rx_process_gw = []
+    json_outliers = []
+    received_data = 0
+    for row in data.collect():
+        timestamp = int(parser.parse(row.timestamp).timestamp() * 1000)
+
+        timestamps.append(timestamp)
+        dev_addrs.append(row.dev_addr)
+        fcnts.append(row.fcnt)
+        rx_process_gw.append((row.rx_gw, row.process_gw))
+
+        is_outlier = (
+            row.soil_temp is not None
+            and row.median is not None
+            and row.threshold is not None
+            and abs(row.soil_temp - row.median) > row.threshold
+        )
+
+        if is_outlier:
+            json_outliers.append(
+                {"devaddr": row.dev_addr, "fcnt": row.fcnt, "timestamp": timestamp}
+            )
+        received_data += 1
+
+    print("Received Data:", received_data)
+
+    json_payload = {
+        "devaddr": "",
+        "aggregated_data": json_outliers,
+        "devaddrs": dev_addrs,
+        "fcnts": fcnts,
+        "rx_process_gw": rx_process_gw,
+        "timestamps": timestamps,
+        "timestamp_pub": int(time.time() * 1000),
+        "aggr_start_time": int(aggr_start_time * 1000),
+    }
+
+    end_time = time.time()
+    print(f"Computation time: {end_time - start_time} seconds")
+
+    publish_output_spark(json_payload)
+
+    print("HAMPEL FILTER COMPUTATION FINISHED")
+
+    # data = (
+    #     data.withColumn(
+    #         "median", F.expr("percentile_approx(soil_temp, 0.5)").over(window)
+    #     )
+    #     .withColumn(
+    #         "mad",
+    #         F.expr("percentile_approx(abs(soil_temp - median), 0.5)").over(window),
+    #     )
+    #     .withColumn("threshold", n_sigma * 1.4826 * F.col("mad"))
+    # )
+
+    # data = data.withColumn(
+    #     "is_outlier", F.abs(F.col("soil_temp") - F.col("median")) > F.col("threshold")
+    # )
+    # print("DEV ADDR")dev_addr for row in data.select("dev_addr").collect()])
+    # print("\n")
+    # print("TIMESTAMP")
+    # print([row.timestamp for row in data.select("timestamp").collect()])
+    # print("\n")
+    # print("VALUES")
+    # print([row.soil_temp for row in data.select("soil_temp").collect()])
+    # print("\n")
+    # print("MEDIAN")
+    # print([row.median for row in data.select("median").collect()])
+    # print("\n")
+    # print("MAD")
+    # print([row.mad for row in data.select("mad").collect()])
+    # print("\n")
+    # print("THRSHOLD")
+    # print([row.threshold for row in data.select("threshold").collect()])
+
+    # outliers = data.filter("is_outlier")
+    # print("Outliers: ", outliers.count())
+    # json_payload = {}
+    # if outliers.count() > 0:
+    #     outliers_detected = outliers.select("dev_addr", "fcnt").collect()
+    #     json_outliers = [
+    #         {"devaddr": row.dev_addr, "fcnt": row.fcnt} for row in outliers_detected
+    #     ]
+    #     json_payload = {
+    #         "devaddr": "",
+    #         "aggregated_data": json_outliers,
+    #         # "devaddrs": [row.dev_addr for row in data.select("dev_addr").collect()],
+    #         # "fcnts": [row.fcnt for row in data.select("fcnt").collect()],
+    #         # "rx_process_gw": list(
+    #         #     zip(
+    #         #         [row.rx_gw for row in data.select("rx_gw").collect()],
+    #         #         [row.process_gw for row in data.select("process_gw").collect()],
+    #         #     )
+    #         # ),
+    #         # "timestamps": [row.timestamp for row in data.select("timestamp").collect()],
+    #         "timestamp_pub": int(time.time() * 1000),
+    #         "aggr_start_time": int(aggr_start_time * 1000),
+    #     }
+    # else:
+    #     json_payload = {
+    #         "devaddr": "",
+    #         "aggregated_data": [],
+    #         "devaddrs": [row.dev_addr for row in data.select("dev_addr").collect()],
+    #         "fcnts": [row.fcnt for row in data.select("fcnt").collect()],
+    #         "rx_process_gw": list(
+    #             zip(data.select("rx_gw").collect(), data.select("process_gw").collect())
+    #         ),
+    #         "timestamps": [row.timestamp for row in data.select("timestamp").collect()],
+    #         "timestamp_pub": int(time.time() * 1000),
+    #         "aggr_start_time": int(aggr_start_time * 1000),
+    #     }
+
+    # end_time = time.time()
+    # print(f"Computation time: {end_time - start_time} seconds")
+
+    # publish_output_spark(json_payload)
+
+    # print("HAMPEL FILTER COMPUTATION FINISHED")
+
+
+# Function to publish output via MQTT
+def publish_output_spark(payload):
+    client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id="publisher_output")
+    client.username_pw_set(os.getenv("MQTT_USERNAME"), os.getenv("MQTT_PASSWORD"))
+    client.connect(os.getenv("MQTT_BROKER_HOST"), int(os.getenv("MQTT_BROKER_PORT")))
+    client.loop_start()
+    json_reading = json.dumps(payload)
+    print("PUBLISHING PROCESS OUTPUT")
+    client.publish(os.getenv("MQTT_TOPIC_OUTPUT"), json_reading)
+    client.disconnect()
+    client.loop_stop()
+
+
+# Define schema for incoming data
+schema = StructType(
+    [
+        StructField("dev_eui", StringType(), True),
+        StructField("dev_addr", StringType(), True),
+        StructField("fcnt", IntegerType(), True),
+        StructField("timestamp", StringType(), True),
+        StructField("frequency", DoubleType(), True),
+        StructField("data_rate", StringType(), True),
+        StructField("coding_rate", StringType(), True),
+        StructField("gtw_id", StringType(), True),
+        StructField("gtw_channel", IntegerType(), True),
+        StructField("gtw_rssi", IntegerType(), True),
+        StructField("gtw_snr", DoubleType(), True),
+        StructField("payload", StringType(), True),
+        StructField("rx_gw", StringType(), True),
+        StructField("process_gw", StringType(), True),
+    ]
+)
+
+
+# Process readings
+def process_readings(rdd):
+    print("PROCESSING AGGREGATION!")
+    aggr_start_time = time.time()
+    batch_df = spark.read.schema(schema).json(rdd)
+    # extract_temp = F.udf(
+    #     lambda payload: json.loads(b64.b64decode(payload).decode("utf-8"))[0],
+    #     DoubleType(),
+    # )
+    # extract_timestamp = F.udf(
+    #     lambda timestamp: int(parser.parse(timestamp).timestamp() * 1000),
+    #     IntegerType(),
+    # )
+    # batch_df = batch_df.withColumn("soil_temp", extract_temp(col("payload")))
+
+    # input_data = batch_df.select(
+    #     "dev_addr", "fcnt", "timestamp", "soil_temp", "rx_gw", "process_gw"
+    # )
+    # input_data = input_data.withColumn(
+    #     "timestamp",
+    #     extract_timestamp(col("timestamp")),
+    # )
+
+    input_data = batch_df.select(
+        "dev_addr", "fcnt", "timestamp", "payload", "rx_gw", "process_gw"
+    )
+
+    window_size = int(os.getenv("WINDOW_SIZE_HAMPEL"))
+    n_sigma = float(os.getenv("N_SIGMA"))
+    hampel_filter(input_data, window_size, n_sigma, aggr_start_time)
+
+
+# Set up MQTT stream
+broker_address = (
+    "tcp://" + os.getenv("MQTT_BROKER_HOST") + ":" + str(os.getenv("MQTT_BROKER_PORT"))
+)
+
+
+readings = MQTTUtils.createStream(
+    ssc,
+    broker_address,
+    os.getenv("MQTT_TOPIC"),
+    os.getenv("MQTT_USERNAME"),
+    os.getenv("MQTT_PASSWORD"),
+)
+
+print(readings)
+print(
+    int(os.getenv("WINDOW_LENGTH")),
+    int(os.getenv("SLIDE_INTERVAL")),
+    int(os.getenv("WINDOW_SIZE_HAMPEL")),
+)
+
+# Process each RDD in the stream
+windowed_readings = readings.window(
+    int(os.getenv("WINDOW_LENGTH")), int(os.getenv("SLIDE_INTERVAL"))
+)
+
+windowed_readings.foreachRDD(process_readings)
+
+# Start the Spark Streaming context
+ssc.start()
+ssc.awaitTermination()
