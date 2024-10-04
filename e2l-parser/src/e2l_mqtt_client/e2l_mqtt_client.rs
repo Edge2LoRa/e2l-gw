@@ -5,16 +5,19 @@ pub(crate) mod e2l_mqtt_client {
     use serde_derive::Deserialize;
     use serde_derive::Serialize;
     use serde_json::Error;
+    use std::env;
     use std::sync::{Arc, Mutex};
 
     use crate::e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto;
     use paho_mqtt as mqtt;
+    use reqwest::Client;
     use std::time::Duration;
 
     #[derive(Debug, Serialize, Deserialize)]
     pub struct MqttVariables {
         pub broker_url: String,
         pub broker_port: String,
+        pub broker_api_port: String,
         pub broker_auth_name: String,
         pub broker_auth_password: String,
         pub broker_process_topic: String,
@@ -91,6 +94,9 @@ pub(crate) mod e2l_mqtt_client {
         mqtt_control_topic: String,
         mqtt_qos: i32,
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
+        api_endpoint: String,
+        api_username: String,
+        api_password: String,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -106,6 +112,7 @@ pub(crate) mod e2l_mqtt_client {
                 query_mode: "sync".to_string(),
                 health_check_interval: "15s".to_string(),
             }
+        }
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -121,14 +128,29 @@ pub(crate) mod e2l_mqtt_client {
     #[derive(Debug, Serialize, Deserialize)]
     pub struct MqttBridgeRemoteOpts {
         pub topic: String,
-        pub qos: u32,
+        pub qos: String,
         pub retain: String,
         pub payload: String,
+    }
+    impl MqttBridgeRemoteOpts {
+        fn new(topic: String) -> Self {
+            MqttBridgeRemoteOpts {
+                topic: topic,
+                qos: "${qos}".to_string(),
+                retain: "${retain}".to_string(),
+                payload: "${payload}".to_string(),
+            }
+        }
     }
 
     #[derive(Debug, Serialize, Deserialize)]
     pub struct MqttBridgeLocalOpts {
         pub topic: String,
+    }
+    impl MqttBridgeLocalOpts {
+        fn new(topic: String) -> Self {
+            MqttBridgeLocalOpts { topic: topic }
+        }
     }
 
     #[derive(Debug, Serialize, Deserialize)]
@@ -137,18 +159,37 @@ pub(crate) mod e2l_mqtt_client {
         remote: MqttBridgeRemoteOpts,
         local: MqttBridgeLocalOpts,
     }
+    impl MqttBridgeEgressOpts {
+        fn new(local_topic: String, remote_topic: String) -> Self {
+            MqttBridgeEgressOpts {
+                pool_size: 8,
+                remote: MqttBridgeRemoteOpts::new(remote_topic),
+                local: MqttBridgeLocalOpts::new(local_topic),
+            }
+        }
+    }
     #[derive(Debug, Serialize, Deserialize)]
     pub struct MqttBridgeIngressOpts {
         pool_size: u32,
         local: MqttBridgeRemoteOpts,
         remote: MqttBridgeLocalOpts,
     }
-        
+    impl MqttBridgeIngressOpts {
+        fn new(local_topic: String, remote_topic: String) -> Self {
+            MqttBridgeIngressOpts {
+                pool_size: 8,
+                local: MqttBridgeRemoteOpts::new(local_topic),
+                remote: MqttBridgeLocalOpts::new(remote_topic),
+            }
+        }
+    }
+
     #[derive(Debug, Serialize, Deserialize)]
     pub struct MqttBridgeEgressConfig {
         pub name: String,
-        pub type_: String,
+        pub r#type: String,
         pub enable: bool,
+        pub bridge_mode: bool,
         pub resource_opts: MqttBridgeResourceOpts,
         pub server: String,
         pub proto_ver: String,
@@ -157,9 +198,67 @@ pub(crate) mod e2l_mqtt_client {
         pub ssl: MqqtBridgeSslConfig,
         pub egress: MqttBridgeEgressOpts,
     }
-    // TODO: FINISH IMPLEMENTING THE DEFAULT FOR THE STRUCTS
+    impl MqttBridgeEgressConfig {
+        fn new(
+            name: String,
+            server: String,
+            username: String,
+            password: String,
+            local_topic: String,
+            remote_topic: String,
+        ) -> Self {
+            MqttBridgeEgressConfig {
+                name: name,
+                r#type: "mqtt".to_string(),
+                enable: true,
+                bridge_mode: true,
+                resource_opts: MqttBridgeResourceOpts::default(),
+                server: server,
+                proto_ver: "v5".to_string(),
+                username: username,
+                password: password,
+                ssl: MqqtBridgeSslConfig::default(),
+                egress: MqttBridgeEgressOpts::new(local_topic, remote_topic),
+            }
+        }
+    }
 
-
+    #[derive(Debug, Serialize, Deserialize)]
+    pub struct MqttBridgeIngressConfig {
+        pub name: String,
+        pub r#type: String,
+        pub enable: bool,
+        pub resource_opts: MqttBridgeResourceOpts,
+        pub server: String,
+        pub proto_ver: String,
+        pub username: String,
+        pub password: String,
+        pub ssl: MqqtBridgeSslConfig,
+        pub ingress: MqttBridgeIngressOpts,
+    }
+    impl MqttBridgeIngressConfig {
+        fn new(
+            name: String,
+            server: String,
+            username: String,
+            password: String,
+            local_topic: String,
+            remote_topic: String,
+        ) -> Self {
+            MqttBridgeIngressConfig {
+                name: name,
+                r#type: "mqtt".to_string(),
+                enable: true,
+                resource_opts: MqttBridgeResourceOpts::default(),
+                server: server,
+                proto_ver: "v5".to_string(),
+                username: username,
+                password: password,
+                ssl: MqqtBridgeSslConfig::default(),
+                ingress: MqttBridgeIngressOpts::new(local_topic, remote_topic),
+            }
+        }
+    }
 
     impl E2LMqttClient {
         pub fn new(
@@ -197,6 +296,17 @@ pub(crate) mod e2l_mqtt_client {
 
             // Subscribe to HANDOVER TOPIC
             let handover_base_topic = mqtt_variables.broker_handover_topic.clone();
+
+            /*
+               API ENDPOINT
+            */
+            let api_endpoint = format!(
+                "http://{}:{}/api/v5/",
+                mqtt_variables.broker_url, mqtt_variables.broker_api_port
+            );
+            let api_username = env::var("BROKER_API_USERNAME").unwrap();
+            let api_password = env::var("BROKER_API_PASSWORD").unwrap();
+
             E2LMqttClient {
                 gw_id: gw_id,
                 mqtt_client: mqtt_client,
@@ -204,6 +314,9 @@ pub(crate) mod e2l_mqtt_client {
                 mqtt_handover_base_topic: handover_base_topic,
                 mqtt_control_topic: mqtt_variables.broker_control_topic,
                 mqtt_qos: mqtt_variables.broker_qos,
+                api_endpoint: api_endpoint,
+                api_username: api_username,
+                api_password: api_password,
                 e2l_crypto: e2l_crypto,
             }
         }
@@ -379,6 +492,123 @@ pub(crate) mod e2l_mqtt_client {
             }) {
                 println!("Error: {:?}", err)
             }
+        }
+
+        pub async fn create_as_bridge(&mut self) -> bool {
+            println!("Creating bridge for gateway: {}", self.gw_id);
+            let url = format!("{}bridges", self.api_endpoint);
+            let topic_wildcard = "${topic}".to_string();
+            let server = format!(
+                "{}:{}",
+                env::var("MQTT_SINK_HOST").unwrap(),
+                env::var("MQTT_SINK_PORT").unwrap()
+            );
+
+            // Create data bridge
+            let name = format!("{}-as-data-bridge", self.gw_id);
+            let local_topic = env::var("MQTT_TOPIC_OUTPUT").unwrap();
+            let remote_topic = format!("{}/{}", self.gw_id, topic_wildcard.clone());
+            let config = MqttBridgeEgressConfig::new(
+                name,
+                server.clone(),
+                self.api_username.clone(),
+                self.api_password.clone(),
+                local_topic,
+                remote_topic,
+            );
+            let response_result = Client::new()
+                .post(url.clone())
+                .basic_auth(self.api_username.clone(), Some(self.api_password.clone()))
+                .json(&config)
+                .send()
+                .await;
+            if let Err(e) = response_result {
+                println!("Error creating bridge: {:?}", e);
+                return false;
+            }
+            let response = response_result.unwrap();
+            if response.status().is_success() {
+                println!("Bridge created successfully");
+            } else {
+                let text = response.text().await.unwrap();
+                if text.contains("ALREADY_EXISTS") {
+                    println!("Bridge already exists");
+                } else {
+                    println!("Error creating bridge: {:?}", text);
+                    return false;
+                }
+            }
+
+            // Create control bridge
+            let name_egress = format!("{}-as-control-bridge-egress", self.gw_id);
+            let name_ingress = format!("{}-as-control-bridge-ingress", self.gw_id);
+            let local_topic = self.mqtt_control_topic.clone();
+            let remote_topic = format!("{}/{}", self.gw_id, topic_wildcard.clone());
+            let egress_config = MqttBridgeEgressConfig::new(
+                name_egress.clone(),
+                server.clone(),
+                self.api_username.clone(),
+                self.api_password.clone(),
+                local_topic.clone(),
+                remote_topic.clone(),
+            );
+            let ingress_config = MqttBridgeIngressConfig::new(
+                name_ingress.clone(),
+                server.clone(),
+                self.api_username.clone(),
+                self.api_password.clone(),
+                local_topic.clone(),
+                remote_topic.clone(),
+            );
+            let egress_response_result = Client::new()
+                .post(url.clone())
+                .basic_auth(self.api_username.clone(), Some(self.api_password.clone()))
+                .json(&egress_config)
+                .send()
+                .await;
+            if let Err(e) = egress_response_result {
+                println!("Error creating egress bridge: {:?}", e);
+                return false;
+            }
+            let egress_response = egress_response_result.unwrap();
+            if egress_response.status().is_success() {
+                println!("Egress bridge created successfully");
+                // print response
+                println!("{:?}", egress_response);
+            } else {
+                let text = egress_response.text().await.unwrap();
+                if text.contains("ALREADY_EXISTS") {
+                    println!("Bridge already exists");
+                } else {
+                    println!("Error creating bridge: {:?}", text);
+                    return false;
+                }
+            }
+            let ingress_response_result = Client::new()
+                .post(url.clone())
+                .basic_auth(self.api_username.clone(), Some(self.api_password.clone()))
+                .json(&ingress_config)
+                .send()
+                .await;
+            if let Err(e) = ingress_response_result {
+                println!("Error creating ingress bridge: {:?}", e);
+                return false;
+            }
+            let ingress_response = ingress_response_result.unwrap();
+            if ingress_response.status().is_success() {
+                println!("Ingress bridge created successfully");
+                // print response
+                println!("{:?}", ingress_response);
+            } else {
+                let text = ingress_response.text().await.unwrap();
+                if text.contains("ALREADY_EXISTS") {
+                    println!("Bridge already exists");
+                } else {
+                    println!("Error creating bridge: {:?}", text);
+                    return false;
+                }
+            }
+            true
         }
     }
 }

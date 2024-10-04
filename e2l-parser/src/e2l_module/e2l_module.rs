@@ -100,6 +100,7 @@ pub(crate) mod e2l_module {
             MqttVariables {
                 broker_url: dotenv::var("BROKER_URL").unwrap(),
                 broker_port: dotenv::var("BROKER_PORT").unwrap(),
+                broker_api_port: dotenv::var("BROKER_API_PORT").unwrap(),
                 broker_auth_name: dotenv::var("BROKER_AUTH_USERNAME").unwrap(),
                 broker_auth_password: dotenv::var("BROKER_AUTH_PASSWORD").unwrap(),
                 broker_process_topic: dotenv::var("BROKER_PROCESS_TOPIC").unwrap(),
@@ -525,12 +526,20 @@ pub(crate) mod e2l_module {
             let e2l_crypto_clone_publisher = Arc::clone(&self.e2l_crypto);
             let e2l_crypto_clone_control_client = Arc::clone(&self.e2l_crypto);
             let e2l_crypto_clone_handover_client = Arc::clone(&self.e2l_crypto);
-            let mqtt_client = E2LMqttClient::new(
+            let mut mqtt_client = E2LMqttClient::new(
                 hostname_publisher,
                 "publisher".to_string(),
                 mqtt_variables,
                 e2l_crypto_clone_publisher,
             );
+            /********************
+             * CREATE AS BRIDGE *
+             ********************/
+            let response = mqtt_client.create_as_bridge().await;
+            if !response {
+                return Err("Unable to create AS bridge".into());
+            }
+
             thread::spawn(|| {
                 let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
                 let mut control_mqtt_client = E2LMqttClient::new(
@@ -599,11 +608,6 @@ pub(crate) mod e2l_module {
                 return Err("Unable to send public key to the AS".into());
             }
             std::mem::drop(rpc_client);
-
-            /********************
-             * CREATE AS BRIDGE *
-             ********************/
-            // TODO: This is a placeholder for the actual implementation
 
             /**********************
              * TTS UDP CONNECTION *
