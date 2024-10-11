@@ -10,12 +10,12 @@ pub(crate) mod e2l_module {
         EDGE_NOT_PROCESSED_FRAMES_LAST, EDGE_NOT_PROCESSED_FRAMES_NUM, LEGACY_FRAMES_FCNTS,
         LEGACY_FRAMES_LAST, LEGACY_FRAMES_NUM,
     };
-    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::E2LMqttClient;
     use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::MqttVariables;
+    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo};
     use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
     use crate::lorawan_structs::lorawan_structs::ForwardProtocols;
     use crate::{
-        e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::{init_rpc_client, E2gwPubInfo},
+        e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::init_rpc_client,
         e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto,
         json_structs::filters_json_structs::filter_json::EnvVariables,
         lorawan_structs::lorawan_structs::ForwardInfo,
@@ -581,33 +581,45 @@ pub(crate) mod e2l_module {
                     .expect("RPC Server failed to start");
             });
             Self::info(format!("RPC SERVER STARTED!"));
-            /*******************
-             * INIT RPC CLIENT *
-             *******************/
+            /***********************
+             * SEND PUB INFO TO AS *
+             ***********************/
             // Compute private ECC key
             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
             let compressed_public_key = e2l_crypto.compressed_public_key.clone().unwrap();
             std::mem::drop(e2l_crypto);
 
-            // INIT RPC CLIENT
+            // SEND GW PUN INFO TO AS
             let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
+            let gw_pub_info = GWPubInfo {
+                rpc_port: gw_rpc_endpoint_port.clone(),
+                pub_key: compressed_public_key.into_vec(),
+            };
+            let gw_pub_info_str =
+                serde_json::to_string(&gw_pub_info).expect("Failed to serialize GWPubInfo");
+            mqtt_client
+                .publish_to_control("pub_info".to_string(), gw_pub_info_str)
+                .await;
+            // // INIT RPC CLIENT
+            // let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
 
-            let hostname = self.hostname.lock().expect("Could not lock!");
-            let request: tonic::Request<E2gwPubInfo> = tonic::Request::new(E2gwPubInfo {
-                gw_ip_addr: hostname.clone(),
-                gw_port: gw_rpc_endpoint_port.clone(),
-                e2gw_pub_key: compressed_public_key.into_vec(),
-            });
-            std::mem::drop(hostname);
+            // let hostname = self.hostname.lock().expect("Could not lock!");
+            // let request: tonic::Request<E2gwPubInfo> = tonic::Request::new(E2gwPubInfo {
+            //     gw_ip_addr: hostname.clone(),
+            //     gw_port: gw_rpc_endpoint_port.clone(),
+            //     e2gw_pub_key: compressed_public_key.into_vec(),
+            // });
+            // std::mem::drop(hostname);
             // sleep 3 sec
-            std::thread::sleep(Duration::from_millis(10000));
-            let mut rpc_client = self.rpc_client.lock().expect("Could not lock.");
-            let response = rpc_client.store_e2gw_pub_info(request).await?;
-            let status_code = response.get_ref().status_code;
-            if status_code < 200 || status_code > 299 {
-                return Err("Unable to send public key to the AS".into());
-            }
-            std::mem::drop(rpc_client);
+
+            // std::thread::sleep(Duration::from_millis(10000));
+            // let mut rpc_client = self.rpc_client.lock().expect("Could not lock.");
+            // let response = rpc_client.store_e2gw_pub_info(request).await?;
+            // let status_code = response.get_ref().status_code;
+            // if status_code < 200 || status_code > 299 {
+            //     return Err("Unable to send public key to the AS".into());
+            // }
+            // std::mem::drop(rpc_client);
 
             /**********************
              * TTS UDP CONNECTION *
