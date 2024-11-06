@@ -15,7 +15,7 @@ pub(crate) mod e2gw_rpc_server {
     }
 
     impl Edge2GatewayServerStruct {
-        pub fn new(e2l_crypto: Arc<Mutex<E2LCrypto>>) -> Self {
+        pub fn _new(e2l_crypto: Arc<Mutex<E2LCrypto>>) -> Self {
             Self {
                 e2l_crypto: e2l_crypto,
             }

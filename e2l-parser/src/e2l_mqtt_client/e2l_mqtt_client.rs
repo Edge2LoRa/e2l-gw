@@ -86,6 +86,11 @@ pub(crate) mod e2l_mqtt_client {
         pub dev_addr: String,
     }
 
+    #[derive(Debug, Serialize, Deserialize)]
+    struct GwActiveStatus {
+        pub active: bool,
+    }
+
     pub struct E2LMqttClient {
         gw_id: String,
         mqtt_client: mqtt::AsyncClient,
@@ -105,7 +110,7 @@ pub(crate) mod e2l_mqtt_client {
 
     #[derive(Debug, Serialize, Deserialize)]
     pub struct GWPubInfo {
-        pub rpc_port: String,
+        pub mqtt_port: String,
         pub pub_key: Vec<u8>,
     }
 
@@ -408,7 +413,8 @@ pub(crate) mod e2l_mqtt_client {
         }
 
         pub async fn run_control_client(&mut self) {
-            let subscribe_topic: String = format!("{}/down/+", self.mqtt_control_topic);
+            let subscribe_topic: String =
+                format!("{}/{}/down/+", self.gw_id, self.mqtt_control_topic);
             let mut strm = self.mqtt_client.get_stream(128);
             let _token = self.mqtt_client.subscribe(subscribe_topic, self.mqtt_qos);
 
@@ -485,6 +491,24 @@ pub(crate) mod e2l_mqtt_client {
                                         }
                                         Err(_) => {
                                             println!("ERROR: Invalid JSON format for 'remove_assigned_device' command");
+                                        }
+                                    }
+                                }
+                                "set_active" => {
+                                    println!("INFO: Command 'set_active' received");
+                                    let active_result: Result<GwActiveStatus, Error> =
+                                        serde_json::from_str(&payload_str);
+
+                                    match active_result {
+                                        Ok(gw_active_status) => {
+                                            let is_active = gw_active_status.active;
+                                            let e2l_crypto =
+                                                self.e2l_crypto.lock().expect("Could not lock!");
+                                            e2l_crypto.set_active(is_active);
+                                            std::mem::drop(e2l_crypto);
+                                        }
+                                        Err(_) => {
+                                            println!("ERROR: Invalid JSON format for 'set_active' command");
                                         }
                                     }
                                 }

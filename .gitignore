@@ -1,3 +1,4 @@
 .env*
 e2l-gw-broker/data
 e2l-gw-broker/log
+e2l-gw-broker/config/default_api_key.conf

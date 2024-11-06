@@ -3,8 +3,6 @@ pub(crate) mod e2l_module {
     use crate::e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::{
         FcntStruct, GwFrameStats, GwLog, SysLog,
     };
-    use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::edge2_gateway_server::Edge2GatewayServer;
-    use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::Edge2GatewayServerStruct;
     use crate::e2l_crypto::e2l_crypto::e2l_crypto::{
         EDGE_FRAMES_FCNTS, EDGE_FRAMES_LAST, EDGE_FRAMES_NUM, EDGE_NOT_PROCESSED_FRAMES_FCNTS,
         EDGE_NOT_PROCESSED_FRAMES_LAST, EDGE_NOT_PROCESSED_FRAMES_NUM, LEGACY_FRAMES_FCNTS,
@@ -29,7 +27,6 @@ pub(crate) mod e2l_module {
     use std::collections::HashMap;
     use std::time::Duration;
     use sysinfo::{CpuExt, System, SystemExt};
-    use tonic::transport::server::Router;
     use tonic::transport::Channel;
     // use std::io::Read;
     use std::str;
@@ -42,7 +39,6 @@ pub(crate) mod e2l_module {
     // RPC
 
     use std::{net::UdpSocket, sync::mpsc::channel, thread};
-    use tonic::transport::Server;
 
     /********************
      * STATIC VARIABLES *
@@ -523,6 +519,7 @@ pub(crate) mod e2l_module {
             let hostname_handover_client = hostname.clone();
             std::mem::drop(hostname);
             let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
+            let mqtt_port = mqtt_variables.broker_port.clone();
             let e2l_crypto_clone_publisher = Arc::clone(&self.e2l_crypto);
             let e2l_crypto_clone_control_client = Arc::clone(&self.e2l_crypto);
             let e2l_crypto_clone_handover_client = Arc::clone(&self.e2l_crypto);
@@ -564,35 +561,35 @@ pub(crate) mod e2l_module {
                     tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
                 rt.block_on(handover_mqtt_client.run_handover_client());
             });
-            /*****************
-             * RPC SERVER    *
-             *****************/
-            let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
-            let rpc_endpoint = format!("0.0.0.0:{}", gw_rpc_endpoint_port.clone());
-            let rt = tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
+            // /*****************
+            //  * RPC SERVER    *
+            //  *****************/
+            // let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
+            // let rpc_endpoint = format!("0.0.0.0:{}", gw_rpc_endpoint_port.clone());
+            // let rt = tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
 
-            let rpc_server: Edge2GatewayServerStruct =
-                Edge2GatewayServerStruct::new(Arc::clone(&self.e2l_crypto));
-            let servicer: Router =
-                Server::builder().add_service(Edge2GatewayServer::new(rpc_server));
-            thread::spawn(move || {
-                let server_future = servicer.serve(rpc_endpoint.parse().unwrap());
-                rt.block_on(server_future)
-                    .expect("RPC Server failed to start");
-            });
-            Self::info(format!("RPC SERVER STARTED!"));
+            // let rpc_server: Edge2GatewayServerStruct =
+            //     Edge2GatewayServerStruct::new(Arc::clone(&self.e2l_crypto));
+            // let servicer: Router =
+            //     Server::builder().add_service(Edge2GatewayServer::new(rpc_server));
+            // thread::spawn(move || {
+            //     let server_future = servicer.serve(rpc_endpoint.parse().unwrap());
+            //     rt.block_on(server_future)
+            //         .expect("RPC Server failed to start");
+            // });
+            // Self::info(format!("RPC SERVER STARTED!"));
             /***********************
              * SEND PUB INFO TO AS *
              ***********************/
+
             // Compute private ECC key
             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
             let compressed_public_key = e2l_crypto.compressed_public_key.clone().unwrap();
             std::mem::drop(e2l_crypto);
 
-            // SEND GW PUN INFO TO AS
-            let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
+            // SEND GW PUB INFO TO AS
             let gw_pub_info = GWPubInfo {
-                rpc_port: gw_rpc_endpoint_port.clone(),
+                mqtt_port: mqtt_port.clone(),
                 pub_key: compressed_public_key.into_vec(),
             };
             let gw_pub_info_str =
@@ -600,7 +597,10 @@ pub(crate) mod e2l_module {
             mqtt_client
                 .publish_to_control("pub_info".to_string(), gw_pub_info_str)
                 .await;
+
             // // INIT RPC CLIENT
+            // let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
+            // let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
             // let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
 
             // let hostname = self.hostname.lock().expect("Could not lock!");

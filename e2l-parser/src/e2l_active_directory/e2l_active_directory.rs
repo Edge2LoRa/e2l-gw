@@ -100,6 +100,7 @@ pub(crate) mod e2l_active_directory {
                 },
             );
             println!("ACTIVE DIRECTORY: Associated device added: {}", dev_addr);
+            println!("ASSOCIATED DEVICES LEN: {}", self.associated_dev_info.len());
         }
 
         /*
