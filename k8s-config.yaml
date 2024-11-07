@@ -1,0 +1,169 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: e2gw
+  namespace: edge2lora
+spec:
+  selector:
+    matchLabels:
+      app: e2gw
+  replicas: 1 
+  template:
+    metadata:
+      labels:
+        app: e2gw # has to match .spec.selector.matchLabels
+    spec:
+      # nodeSelector:
+      #   machine-gw: "yes"
+      # TO ENABLE IN PRODUCTION TO DISTRIBUTE PODS ACROSS NODES
+      # affinity:
+      #   podAntiAffinity:
+      #     requiredDuringSchedulingIgnoredDuringExecution:
+      #     - labelSelector:
+      #         matchExpressions:
+      #         - key: app
+      #           operator: In
+      #           values:
+      #           - e2gw
+      #       topologyKey: "kubernetes.io/hostname"
+      terminationGracePeriodSeconds: 10
+      volumes:
+      - name: api-key
+        secret:
+          secretName: emqx-api-key
+      containers:
+      - name: broker
+        image: emqx/emqx:5.8.0
+        env:
+        - name: EMQX_API_KEY__BOOTSTRAP_FILE
+          value: /opt/emqx/etc/default_api_key/default_api_key.conf
+        ports:
+        - containerPort: 1883
+          name: mqtt
+        - containerPort: 8083
+          name: http
+        - containerPort: 8084
+          name: https
+        - containerPort: 8883
+          name: mqtts
+        - containerPort: 18083
+          name: dashboard-api
+        volumeMounts:
+        - name: api-key
+          mountPath: /opt/emqx/etc/default_api_key/
+      - name: parser
+        image: ghcr.io/edge2lora/e2l-parser:load-balancing-12
+        ports:
+        - containerPort: 1680
+          name: udp
+        - containerPort: 50052
+          name: grpc
+        env:
+        - name: AGENT_BIND_ADDRESS
+          value: "0.0.0.0"
+        - name: AGENT_PORT
+          value: "1680"
+        - name: GW_RPC_ENDPOINT_PORT
+          value: "50052"
+        - name: NB_HOST
+          value: "TBD"
+        - name: NB_PORT
+          value: "1700"
+        - name: FILE_AND_PATH
+          value: "src/filter.json"
+        - name: BROKER_URL
+          value: "localhost"
+        - name: BROKER_PORT
+          value: "1883"
+        - name: BROKER_QOS
+          value: "1"
+        - name: BROKER_AUTH_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mqtt-broker-credentials
+              key: mqtt-broker-username
+        - name: BROKER_AUTH_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mqtt-broker-credentials
+              key: mqtt-broker-password
+        - name: BROKER_API_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: api-broker-credentials
+              key: api-broker-username
+        - name: BROKER_API_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: api-broker-credentials
+              key: api-broker-password
+        - name: BROKER_PROCESS_TOPIC
+          value: "e2l/process/input"
+        - name: MQTT_TOPIC_OUTPUT
+          value: "e2l/process/output"
+        - name: BROKER_HANDOVER_TOPIC
+          value: "e2l/handover"
+        - name: BROKER_CONTROL_TOPIC
+          value: "e2l/control"
+        - name: MQTT_SINK_HOST
+          value: "e2as-broker"
+        - name: MQTT_SINK_PORT
+          value: "1883"
+        - name: IGNORE_LOGS
+          value: "1"
+        - name: DEBUG
+          value: "false"
+      - name: process
+        image: ghcr.io/edge2lora/e2l-process:hampel-load-balancing-12
+        env:
+        - name: MQTT_USERNAME
+          valueFrom:
+            secretKeyRef:
+              name: mqtt-broker-credentials
+              key: mqtt-broker-username
+        - name: MQTT_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: mqtt-broker-credentials
+              key: mqtt-broker-password
+        - name: MQTT_BROKER_HOST
+          value: "localhost"
+        - name: MQTT_BROKER_PORT
+          value: "1883"
+        - name: MQTT_TOPIC
+          value: "e2l/process/input"
+        - name: MQTT_TOPIC_OUTPUT
+          value: "e2l/process/output"
+        - name: WINDOW_SIZE_HAMPEL
+          value: "600"
+        - name: WINDOW_SIZE
+          value: "60"
+        - name: SLIDE_INTERVAL
+          value: "60"
+        - name: N_SIGMA
+          value: "3.5"
+        - name: CORE_NUMBER
+          value: "*"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: e2gw-svc
+  namespace: edge2lora
+spec:
+  type: ClusterIP
+  selector:
+    app: e2gw
+  ports:
+  - name: mqtt
+    port: 1883
+    targetPort: 1883
+  - name: dashboard-api
+    port: 18083
+    targetPort: 18083
+  - name: grpc
+    port: 50052
+    targetPort: 50052
+  - name: udp
+    port: 1680
+    targetPort: 1680
