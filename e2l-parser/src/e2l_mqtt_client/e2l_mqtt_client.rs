@@ -67,6 +67,17 @@ pub(crate) mod e2l_mqtt_client {
     }
 
     #[derive(Debug, Serialize, Deserialize)]
+    pub struct GwStats {
+        pub gw_id: String,
+        pub rx_frames: u32,
+        pub tx_frames: u32,
+        pub fw_frames: u32,
+        pub proc_frames: u32,
+        pub mem_usage: f32,
+        pub cpu_usage: f32,
+    }
+
+    #[derive(Debug, Serialize, Deserialize)]
     pub struct NewAssignedDevice {
         pub dev_eui: String,
         pub dev_addr: String,

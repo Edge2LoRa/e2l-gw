@@ -1,19 +1,10 @@
 pub(crate) mod e2l_module {
-    use crate::e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::edge2_application_server_client::Edge2ApplicationServerClient;
-    use crate::e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::{
-        FcntStruct, GwFrameStats, GwLog, SysLog,
-    };
-    use crate::e2l_crypto::e2l_crypto::e2l_crypto::{
-        EDGE_FRAMES_FCNTS, EDGE_FRAMES_LAST, EDGE_FRAMES_NUM, EDGE_NOT_PROCESSED_FRAMES_FCNTS,
-        EDGE_NOT_PROCESSED_FRAMES_LAST, EDGE_NOT_PROCESSED_FRAMES_NUM, LEGACY_FRAMES_FCNTS,
-        LEGACY_FRAMES_LAST, LEGACY_FRAMES_NUM,
-    };
-    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::MqttVariables;
+    use crate::e2l_crypto::e2l_crypto::e2l_crypto::{FW_FRAMES, PROC_FRAMES, RX_FRAMES, TX_FRAMES};
     use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo};
+    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables};
     use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
     use crate::lorawan_structs::lorawan_structs::ForwardProtocols;
     use crate::{
-        e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::init_rpc_client,
         e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto,
         json_structs::filters_json_structs::filter_json::EnvVariables,
         lorawan_structs::lorawan_structs::ForwardInfo,
@@ -27,7 +18,6 @@ pub(crate) mod e2l_module {
     use std::collections::HashMap;
     use std::time::Duration;
     use sysinfo::{CpuExt, System, SystemExt};
-    use tonic::transport::Channel;
     // use std::io::Read;
     use std::str;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -45,11 +35,6 @@ pub(crate) mod e2l_module {
      ********************/
     const TIMEOUT: u64 = 3 * 60 * 100;
     static mut DEBUG: bool = false;
-
-    // FRAME IDS
-    static EDGE_FRAME_ID: u64 = 1;
-    static LEGACY_FRAME_ID: u64 = 2;
-    static EDGE_FRAME_ID_NOT_PROCESSED: u64 = 3;
 
     // LORAWAN PORTS
     static DEFAULT_APP_PORT: u8 = 2;
@@ -74,8 +59,6 @@ pub(crate) mod e2l_module {
         hostname: Arc<Mutex<String>>,
         fwinfo: Arc<Mutex<ForwardInfo>>,
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
-        rpc_client: Arc<Mutex<Edge2ApplicationServerClient<Channel>>>,
-        ignore_logs_flag: bool,
     }
 
     // STATIC FUNCTION
@@ -140,21 +123,42 @@ pub(crate) mod e2l_module {
 
     // PRIVATE FUNCTIONS
     impl E2LModule {
-        async fn start_sys_monitoring_thread(&self) {
+        async fn start_gw_stats_thread(&self) {
             Self::info(format!("Starting System counter stats thread!"));
             let hostname_mut = self.hostname.lock().expect("Could not lock!");
             let hostname = hostname_mut.clone();
             std::mem::drop(hostname_mut);
-            let rpc_client_mut = self.rpc_client.lock().expect("Could not lock!");
-            let mut rpc_client_sys = rpc_client_mut.clone();
-            std::mem::drop(rpc_client_mut);
+            let e2l_crypto_clone_publisher = Arc::clone(&self.e2l_crypto);
+            let hostname_mut = self.hostname.lock().expect("Could not lock!");
+            let hostname = hostname.clone();
+            std::mem::drop(hostname_mut);
+            let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
+
             thread::spawn(move || {
                 let mut s: System = System::new_all();
-                let rt_sys = tokio::runtime::Runtime::new()
-                    .expect("Failed to obtain a new RunTime object for SysLog");
                 Self::info(format!("System counter stats thread started!"));
 
+                let mqtt_client = E2LMqttClient::new(
+                    hostname.clone(),
+                    "sys_stats_publisher".to_string(),
+                    mqtt_variables,
+                    e2l_crypto_clone_publisher,
+                );
                 loop {
+                    let rx_frames: u32;
+                    let tx_frames: u32;
+                    let fw_frames: u32;
+                    let proc_frames: u32;
+                    unsafe {
+                        rx_frames = RX_FRAMES.clone();
+                        tx_frames = TX_FRAMES.clone();
+                        fw_frames = FW_FRAMES.clone();
+                        proc_frames = PROC_FRAMES.clone();
+                        RX_FRAMES = 0;
+                        TX_FRAMES = 0;
+                        FW_FRAMES = 0;
+                        PROC_FRAMES = 0;
+                    }
                     s.refresh_memory();
                     let used_memory = s.used_memory();
                     let available_memory = s.available_memory();
@@ -165,87 +169,20 @@ pub(crate) mod e2l_module {
                     let used_cpu = s.global_cpu_info().cpu_usage();
                     Self::debug(format!("{}%", used_cpu));
 
-                    /*
-                    // Network interfaces, data received and data transmitted:
-                    println!("=> networks:");
-                    for (interface_name, data) in sys.networks() {
-                        println!("{}: {}/{} B", interface_name, data.received(), data.transmitted());
-                    }
-                    */
-
-                    let log_request: tonic::Request<SysLog> = tonic::Request::new(SysLog {
+                    let gw_stats_obj = GwStats {
                         gw_id: hostname.clone(),
-                        memory_usage: used_memory,
-                        memory_available: available_memory,
+                        rx_frames: rx_frames,
+                        tx_frames: tx_frames,
+                        fw_frames: fw_frames,
+                        proc_frames: proc_frames,
+                        mem_usage: used_memory as f32 / available_memory as f32,
                         cpu_usage: used_cpu,
-                        data_received: 0,
-                        data_transmitted: 0,
-                    });
-                    Self::debug(format!("{:?}", log_request));
-                    let response_sys = rpc_client_sys.sys_log(log_request);
-                    rt_sys
-                        .block_on(response_sys)
-                        .expect("RPC Server failed to start");
+                    };
 
-                    thread::sleep(Duration::from_millis(5000));
-                }
-            });
-        }
+                    let gw_stats_str = serde_json::to_string(&gw_stats_obj).unwrap();
 
-        async fn start_frames_monitoring_thread(&self) {
-            Self::info(format!("Starting Frames counter stats thread!"));
-            let hostname_mut = self.hostname.lock().expect("Could not lock!");
-            let hostname = hostname_mut.clone();
-            std::mem::drop(hostname_mut);
-            let rpc_client_mut = self.rpc_client.lock().expect("Could not lock!");
-            let mut rpc_client_frames = rpc_client_mut.clone();
-            std::mem::drop(rpc_client_mut);
-            thread::spawn(move || {
-                // Start frames counter thread
-                let rt_frames_counter = tokio::runtime::Runtime::new()
-                    .expect("Failed to obtain a new RunTime object for SysLog");
-                Self::info(format!("Frames counter stats thread started!"));
-                loop {
-                    let gw_frame_stats_request: tonic::Request<GwFrameStats>;
-                    unsafe {
-                        let legacy_delta: u64 = LEGACY_FRAMES_NUM - LEGACY_FRAMES_LAST;
-                        LEGACY_FRAMES_LAST = LEGACY_FRAMES_NUM;
-                        let legacy_fcnts: Vec<FcntStruct> = LEGACY_FRAMES_FCNTS.clone();
-                        LEGACY_FRAMES_FCNTS = Vec::new();
+                    let _ = mqtt_client.publish_to_process(gw_stats_str.clone());
 
-                        let edge_delta: u64 = EDGE_FRAMES_NUM - EDGE_FRAMES_LAST;
-                        EDGE_FRAMES_LAST = EDGE_FRAMES_NUM;
-                        let edge_fcnts: Vec<FcntStruct> = EDGE_FRAMES_FCNTS.clone();
-                        EDGE_FRAMES_FCNTS = Vec::new();
-
-                        let edge_not_processed_delta =
-                            EDGE_NOT_PROCESSED_FRAMES_NUM - EDGE_NOT_PROCESSED_FRAMES_LAST;
-                        EDGE_NOT_PROCESSED_FRAMES_LAST = EDGE_NOT_PROCESSED_FRAMES_NUM;
-                        let edge_not_processed_fcnts: Vec<FcntStruct> =
-                            EDGE_NOT_PROCESSED_FRAMES_FCNTS.clone();
-                        EDGE_NOT_PROCESSED_FRAMES_FCNTS = Vec::new();
-
-                        gw_frame_stats_request = tonic::Request::new(GwFrameStats {
-                            gw_id: hostname.clone(),
-                            legacy_frames: legacy_delta,
-                            legacy_fcnts,
-                            edge_frames: edge_delta,
-                            edge_fcnts: edge_fcnts,
-                            edge_not_processed_frames: edge_not_processed_delta,
-                            edge_not_processed_fcnts: edge_not_processed_fcnts,
-                        });
-
-                        Self::info(format!("Received Legacy Frame: {}", legacy_delta));
-                        Self::info(format!("Received Edge Frame: {}", edge_delta));
-                        Self::info(format!(
-                            "Received Edge Frame not processed: {}",
-                            edge_not_processed_delta
-                        ));
-                    }
-                    let response_frames = rpc_client_frames.gw_frames_stats(gw_frame_stats_request);
-                    rt_frames_counter
-                        .block_on(response_frames)
-                        .expect("RPC Server failed to start");
                     thread::sleep(Duration::from_millis(5000));
                 }
             });
@@ -268,7 +205,7 @@ pub(crate) mod e2l_module {
             let dev_addr_string = strs.join("");
 
             // let dev_addr_string = format!("{:x}", dev_addr_vec.clone());
-            let dev_addr = u32::from_be_bytes(Self::extract_dev_addr_array(
+            let _dev_addr = u32::from_be_bytes(Self::extract_dev_addr_array(
                 dev_addr_vec.into_iter().rev().collect(),
             ));
 
@@ -277,9 +214,13 @@ pub(crate) mod e2l_module {
             is_active = e2l_crypto.is_active();
             std::mem::drop(e2l_crypto);
             if is_active {
+                // UPDATE RX_FRAMES COUNTER
+                unsafe {
+                    RX_FRAMES = RX_FRAMES + 1;
+                }
                 // get epoch time
                 let start = SystemTime::now();
-                let timetag = start
+                let _timetag = start
                     .duration_since(UNIX_EPOCH)
                     .expect("Time went backwards");
 
@@ -302,35 +243,8 @@ pub(crate) mod e2l_module {
                     std::mem::drop(e2l_crypto);
                     match mqtt_payload_option {
                         Some(mqtt_payload) => {
-                            if !self.ignore_logs_flag {
-                                let hostname = self.hostname.lock().expect("Could not lock!");
-                                let log_request: tonic::Request<GwLog> =
-                                    tonic::Request::new(GwLog {
-                                        gw_id: hostname.clone(),
-                                        dev_addr: dev_addr_string.clone(),
-                                        log: format!(
-                                            "Processed Edge Frame from {}",
-                                            dev_addr.clone()
-                                        ),
-                                        frame_type: EDGE_FRAME_ID,
-                                        fcnt: fcnt as u64,
-                                        timetag: timetag.as_millis() as u64,
-                                    });
-                                std::mem::drop(hostname);
-                                let mut rpc_client =
-                                    self.rpc_client.lock().expect("Could not lock.");
-                                rpc_client
-                                    .gw_log(log_request)
-                                    .await
-                                    .expect("Error sending logs!");
-                                std::mem::drop(rpc_client);
-                            }
                             unsafe {
-                                EDGE_FRAMES_NUM = EDGE_FRAMES_NUM + 1;
-                                EDGE_FRAMES_FCNTS.push(FcntStruct {
-                                    dev_addr: dev_addr_string.clone(),
-                                    fcnt: fcnt as u64,
-                                });
+                                PROC_FRAMES = PROC_FRAMES + 1;
                             }
                             let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                 .unwrap_or_else(|_| "Error".to_string());
@@ -359,30 +273,8 @@ pub(crate) mod e2l_module {
 
                             match mqtt_payload_option {
                                 Some(mqtt_payload) => {
-                                    // SEND LOG
-                                    if !self.ignore_logs_flag {
-                                        let hostname =
-                                            self.hostname.lock().expect("Could not lock!");
-                                        let log_request: tonic::Request<GwLog> =
-                                            tonic::Request::new(GwLog {
-                                                gw_id: hostname.clone(),
-                                                dev_addr: dev_addr_string.clone(),
-                                                log: format!(
-                                                    "Received Edge Frame from {} (NOT PROCESSING)",
-                                                    dev_addr.clone()
-                                                ),
-                                                frame_type: EDGE_FRAME_ID_NOT_PROCESSED,
-                                                fcnt: fcnt as u64,
-                                                timetag: timetag.as_millis() as u64,
-                                            });
-                                        std::mem::drop(hostname);
-                                        let mut rpc_client =
-                                            self.rpc_client.lock().expect("Could not lock.");
-                                        rpc_client
-                                            .gw_log(log_request)
-                                            .await
-                                            .expect("Error sending logs!");
-                                        std::mem::drop(rpc_client);
+                                    unsafe {
+                                        FW_FRAMES = FW_FRAMES + 1;
                                     }
                                     let gw_id = mqtt_payload.gw_id.clone();
                                     let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
@@ -392,58 +284,17 @@ pub(crate) mod e2l_module {
                                 }
                                 None => {}
                             }
-                            unsafe {
-                                EDGE_NOT_PROCESSED_FRAMES_NUM = EDGE_NOT_PROCESSED_FRAMES_NUM + 1;
-                                EDGE_NOT_PROCESSED_FRAMES_FCNTS.push(FcntStruct {
-                                    dev_addr: dev_addr_string.clone(),
-                                    fcnt: fcnt as u64,
-                                });
-                            }
                         }
                         port if port == DEFAULT_APP_PORT => {
                             let fwinfo = self.fwinfo.lock().expect("Could not lock!");
                             match fwinfo.forward_protocol {
                                 ForwardProtocols::UDP => {
                                     Self::debug(format!(
-                                        "Forwarding to {:x?}",
+                                        "Forwarding to NS: {:x?}",
                                         fwinfo.forward_host.clone()
                                     ));
-
-                                    Self::debug(format!(
-                                        "Forwarding Legacy Frame to {}",
-                                        dev_addr.clone()
-                                    ));
-
-                                    if !self.ignore_logs_flag {
-                                        let hostname =
-                                            self.hostname.lock().expect("Could not lock!");
-                                        let log_request: tonic::Request<GwLog> =
-                                            tonic::Request::new(GwLog {
-                                                gw_id: hostname.clone(),
-                                                dev_addr: dev_addr_string.clone(),
-                                                log: format!(
-                                                    "Received Legacy Frame from {}",
-                                                    dev_addr.clone()
-                                                ),
-                                                frame_type: LEGACY_FRAME_ID,
-                                                fcnt: fcnt as u64,
-                                                timetag: timetag.as_millis() as u64,
-                                            });
-                                        std::mem::drop(hostname);
-                                        let mut rpc_client =
-                                            self.rpc_client.lock().expect("Could not lock.");
-                                        rpc_client
-                                            .gw_log(log_request)
-                                            .await
-                                            .expect("Error sending logs!");
-                                        std::mem::drop(rpc_client);
-                                    }
                                     unsafe {
-                                        LEGACY_FRAMES_NUM = LEGACY_FRAMES_NUM + 1;
-                                        LEGACY_FRAMES_FCNTS.push(FcntStruct {
-                                            dev_addr: dev_addr_string.clone(),
-                                            fcnt: fcnt as u64,
-                                        });
+                                        TX_FRAMES = TX_FRAMES + 1;
                                     }
                                 } // _ => panic!("Forwarding protocol not implemented!"),
                             }
@@ -466,14 +317,6 @@ pub(crate) mod e2l_module {
         pub async fn new() -> E2LModule {
             dotenv::dotenv().ok();
             let env_variables: EnvVariables = Self::charge_environment_variables();
-            // GET IGNORE LOG FLAG
-            let ignore_logs_str_flag = dotenv::var("IGNORE_LOGS").unwrap();
-            let ignore_logs_flag: bool;
-            if ignore_logs_str_flag == "1" {
-                ignore_logs_flag = true;
-            } else {
-                ignore_logs_flag = false;
-            }
             /*****************
              * ENV VARIABLES *
              *****************/
@@ -488,24 +331,15 @@ pub(crate) mod e2l_module {
 
             let hostname: String = gethostname().into_string().unwrap();
 
-            let rpc_remote_host = dotenv::var("RPC_DM_REMOTE_HOST").unwrap();
-            let rpc_remote_port = dotenv::var("RPC_DM_REMOTE_PORT").unwrap();
-            let rpc_client: Edge2ApplicationServerClient<Channel> =
-                init_rpc_client(rpc_remote_host.clone(), rpc_remote_port.clone())
-                    .await
-                    .unwrap();
-
             /*
              * E2LCrypto
              */
-            let e2l_crypto = E2LCrypto::new(hostname.clone(), ignore_logs_flag);
+            let e2l_crypto = E2LCrypto::new(hostname.clone());
             let e2l_crypto_arc = Arc::new(Mutex::new(e2l_crypto));
             E2LModule {
                 hostname: Arc::new(Mutex::new(hostname.clone())),
                 fwinfo: Arc::new(Mutex::new(fwinfo)),
                 e2l_crypto: e2l_crypto_arc,
-                rpc_client: Arc::new(Mutex::new(rpc_client)),
-                ignore_logs_flag: ignore_logs_flag,
             }
         }
 
@@ -667,15 +501,10 @@ pub(crate) mod e2l_module {
             });
 
             /******************
-             * SYS STATS LOOP *
+             * GW STATS LOOP *
              ******************/
 
-            self.start_sys_monitoring_thread().await;
-
-            /********************
-             * FRAME STATS LOOP *
-             ********************/
-            self.start_frames_monitoring_thread().await;
+            self.start_gw_stats_thread().await;
 
             /*************
              * MAIN LOOP *

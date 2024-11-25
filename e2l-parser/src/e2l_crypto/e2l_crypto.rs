@@ -5,22 +5,16 @@ static _MAX_ID: u8 = 4;
 pub(crate) mod e2l_crypto {
     use base64::{engine::general_purpose, Engine as _};
     use lorawan_encoding::parser::parse;
-    use lorawan_encoding::parser::DataHeader;
     use lorawan_encoding::parser::DataPayload;
     use lorawan_encoding::parser::PhyPayload;
     // MUTEX
     use std::sync::{Arc, Mutex, MutexGuard};
 
-    // FRAMES COUNTERS
-    pub static mut LEGACY_FRAMES_NUM: u64 = 0;
-    pub static mut LEGACY_FRAMES_LAST: u64 = 0;
-    pub static mut LEGACY_FRAMES_FCNTS: Vec<FcntStruct> = Vec::new();
-    pub static mut EDGE_FRAMES_NUM: u64 = 0;
-    pub static mut EDGE_FRAMES_LAST: u64 = 0;
-    pub static mut EDGE_FRAMES_FCNTS: Vec<FcntStruct> = Vec::new();
-    pub static mut EDGE_NOT_PROCESSED_FRAMES_NUM: u64 = 0;
-    pub static mut EDGE_NOT_PROCESSED_FRAMES_LAST: u64 = 0;
-    pub static mut EDGE_NOT_PROCESSED_FRAMES_FCNTS: Vec<FcntStruct> = Vec::new();
+    // NEW FRAMES COUNTERS
+    pub static mut RX_FRAMES: u32 = 0;
+    pub static mut TX_FRAMES: u32 = 0;
+    pub static mut FW_FRAMES: u32 = 0;
+    pub static mut PROC_FRAMES: u32 = 0;
     // Crypto
     extern crate p256;
     extern crate serde_json;
@@ -40,7 +34,6 @@ pub(crate) mod e2l_crypto {
     use sha2::Digest;
     use sha2::Sha256;
 
-    use crate::e2gw_rpc_client::e2gw_rpc_client::e2gw_rpc_client::FcntStruct;
     use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::{Device, E2lData, GwResponse};
     use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{
         MqttJson, UnassociatedMqttJson,
@@ -62,7 +55,6 @@ pub(crate) mod e2l_crypto {
         pub compressed_public_key: Option<Box<[u8]>>,
         pub active_directory_mutex: Arc<Mutex<E2LActiveDirectory>>,
         is_active: Arc<Mutex<bool>>,
-        _ignore_logs_flag: bool,
     }
 
     struct KeyInfo {
@@ -111,7 +103,7 @@ pub(crate) mod e2l_crypto {
         /*
            @brief: This function return a new E2LCrypto object
         */
-        pub fn new(hostname: String, ignore_logs_flag: bool) -> Self {
+        pub fn new(hostname: String) -> Self {
             let key_info = Self::generate_ecc_keys();
             let return_value = E2LCrypto {
                 gw_id: hostname,
@@ -120,7 +112,6 @@ pub(crate) mod e2l_crypto {
                 compressed_public_key: key_info.compressed_public_key,
                 active_directory_mutex: Arc::new(Mutex::new(E2LActiveDirectory::new())),
                 is_active: Arc::new(Mutex::new(false)),
-                _ignore_logs_flag: ignore_logs_flag,
             };
 
             return return_value;
@@ -551,12 +542,6 @@ pub(crate) mod e2l_crypto {
             let parsed_data = parse(data.clone());
             match parsed_data {
                 Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
-                    let fhdr = phy.fhdr();
-                    let fcnt = fhdr.fcnt();
-                    let dev_addr_vec = fhdr.dev_addr().as_ref().to_vec();
-                    let aux: Vec<u8> = dev_addr_vec.clone().into_iter().rev().collect();
-                    let strs: Vec<String> = aux.iter().map(|b| format!("{:02X}", b)).collect();
-                    let dev_addr_string = strs.join("");
                     let mqtt_payload_option = self.get_json_mqtt_payload(
                         dev_addr.clone(),
                         payload.fcnt,
@@ -567,13 +552,6 @@ pub(crate) mod e2l_crypto {
                     );
                     match mqtt_payload_option {
                         Some(mqtt_payload) => {
-                            unsafe {
-                                EDGE_FRAMES_NUM = EDGE_FRAMES_NUM + 1;
-                                EDGE_FRAMES_FCNTS.push(FcntStruct {
-                                    dev_addr: dev_addr_string.clone(),
-                                    fcnt: fcnt as u64,
-                                });
-                            }
                             let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                 .unwrap_or_else(|_| "Error".to_string());
                             return Some(mqtt_payload_str);
@@ -598,7 +576,7 @@ pub(crate) mod e2l_crypto {
 
     impl Default for E2LCrypto {
         fn default() -> Self {
-            Self::new(gethostname().into_string().unwrap(), true)
+            Self::new(gethostname().into_string().unwrap())
         }
     }
 }

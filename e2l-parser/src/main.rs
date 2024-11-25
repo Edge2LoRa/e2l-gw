@@ -1,4 +1,3 @@
-mod e2gw_rpc_client;
 mod e2gw_rpc_server;
 mod e2l_active_directory;
 mod e2l_crypto;
