@@ -8,6 +8,7 @@ pub(crate) mod e2l_mqtt_client {
     use std::sync::{Arc, Mutex};
 
     use crate::e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto;
+    use crate::e2l_crypto::e2l_crypto::e2l_crypto::TX_FRAMES;
     use paho_mqtt as mqtt;
     use reqwest::Client;
     use std::time::Duration;
@@ -520,6 +521,12 @@ pub(crate) mod e2l_mqtt_client {
                                         Err(_) => {
                                             println!("ERROR: Invalid JSON format for 'set_active' command");
                                         }
+                                    }
+                                }
+                                "aggregation_completed" => {
+                                    println!("INFO: Command 'aggregation_completed' received");
+                                    unsafe {
+                                        TX_FRAMES = TX_FRAMES + 1;
                                     }
                                 }
                                 _ => {
