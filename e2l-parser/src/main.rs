@@ -1,4 +1,4 @@
-mod e2gw_rpc_server;
+#![warn(unused_extern_crates)]
 mod e2l_active_directory;
 mod e2l_crypto;
 mod e2l_module;
@@ -8,17 +8,6 @@ mod lorawan_structs;
 
 #[macro_use]
 extern crate lazy_static;
-extern crate base64;
-extern crate core;
-extern crate dotenv;
-extern crate getopts;
-extern crate lorawan_encoding;
-extern crate p256;
-extern crate rand;
-extern crate rumqttc;
-extern crate serde;
-extern crate serde_derive;
-extern crate serde_json;
 
 use e2l_module::e2l_module::e2l_module::E2LModule;
 

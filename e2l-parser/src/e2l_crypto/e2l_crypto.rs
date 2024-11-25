@@ -16,9 +16,9 @@ pub(crate) mod e2l_crypto {
     pub static mut FW_FRAMES: u32 = 0;
     pub static mut PROC_FRAMES: u32 = 0;
     // Crypto
-    extern crate p256;
-    extern crate serde_json;
     use gethostname::gethostname;
+    use p256;
+    use serde_json;
     use std::ops::Mul;
 
     use lorawan_encoding::default_crypto::DefaultFactory;
@@ -34,7 +34,6 @@ pub(crate) mod e2l_crypto {
     use sha2::Digest;
     use sha2::Sha256;
 
-    use crate::e2gw_rpc_server::e2gw_rpc_server::e2gw_rpc_server::{Device, E2lData, GwResponse};
     use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{
         MqttJson, UnassociatedMqttJson,
     };
@@ -88,7 +87,7 @@ pub(crate) mod e2l_crypto {
            @param point: the point to multiply as public key
            @return: the result of the scalar multiplication
         */
-        fn scalar_point_multiplication(
+        fn _scalar_point_multiplication(
             scalar: P256SecretKey<p256::NistP256>,
             point: P256PublicKey<p256::NistP256>,
         ) -> Result<p256::elliptic_curve::PublicKey<p256::NistP256>, p256::elliptic_curve::Error>
@@ -141,7 +140,7 @@ pub(crate) mod e2l_crypto {
            @param dev_public_key_compressed: the compressed public key of the device
            @return: the g_gw_ed to send to the AS
         */
-        pub fn handle_ed_pub_info(
+        pub fn _handle_ed_pub_info(
             &self,
             dev_eui: String,
             dev_addr: String,
@@ -180,7 +179,7 @@ pub(crate) mod e2l_crypto {
 
             // Compute the Edge Session Key
             let edge_s_key_pub_key: P256PublicKey<p256::NistP256> =
-                Self::scalar_point_multiplication(self.private_key.clone().unwrap(), g_as_ed)
+                Self::_scalar_point_multiplication(self.private_key.clone().unwrap(), g_as_ed)
                     .unwrap();
             let edge_s_key = edge_s_key_pub_key.as_affine().x();
             let edge_s_key_bytes: Vec<u8> = edge_s_key.to_vec();
@@ -214,7 +213,7 @@ pub(crate) mod e2l_crypto {
             std::mem::drop(active_directory);
             println!("Added dev addr: {:?} to active directory.", dev_addr);
 
-            let g_gw_ed = Self::scalar_point_multiplication(
+            let g_gw_ed = Self::_scalar_point_multiplication(
                 self.private_key.clone().unwrap(),
                 dev_public_key,
             )
@@ -371,27 +370,6 @@ pub(crate) mod e2l_crypto {
             std::mem::drop(active_directory);
         }
 
-        pub fn remove_e2device(&self, dev_addr: String) -> E2lData {
-            let mut active_directory: MutexGuard<E2LActiveDirectory> =
-                self.active_directory_mutex.lock().unwrap();
-            if active_directory.is_associated_dev(&dev_addr.clone()) {
-                active_directory.remove_associated_dev(&dev_addr.clone());
-            } else {
-                active_directory.remove_unassociated_dev(&dev_addr.clone());
-            }
-            std::mem::drop(active_directory);
-            println!("Device removed: {:?}", dev_addr);
-            let response = E2lData {
-                status_code: -1,
-                dev_eui: "".to_string(),
-                dev_addr: "".to_string(),
-                aggregated_data: 0,
-                aggregated_data_num: 0,
-                timetag: 0,
-            };
-            return response;
-        }
-
         pub fn add_assigned_device(&self, device: NewAssignedDevice) {
             let dev_eui = device.dev_eui;
             let dev_addr = device.dev_addr;
@@ -450,70 +428,6 @@ pub(crate) mod e2l_crypto {
                 to active directory UNASSIGNED.",
                 dev_addr.clone()
             );
-        }
-
-        pub fn add_devices(&self, device_list: Vec<Device>) -> GwResponse {
-            let mut assigned_device_number: i32 = 0;
-            let mut unassigned_device_number: i32 = 0;
-            for device in device_list {
-                let assigned_gw = device.assigned_gw;
-                let dev_eui = device.dev_eui;
-                let dev_addr = device.dev_addr;
-
-                // Check if device is assigned to the current gw
-                if assigned_gw != self.gw_id {
-                    let mut active_directory: MutexGuard<E2LActiveDirectory> =
-                        self.active_directory_mutex.lock().unwrap();
-                    active_directory.add_unassociated_dev(dev_eui, dev_addr, assigned_gw);
-                    std::mem::drop(active_directory);
-                    unassigned_device_number += 1;
-                    continue;
-                }
-                let active_directory: MutexGuard<E2LActiveDirectory> =
-                    self.active_directory_mutex.lock().unwrap();
-                let already_existing = active_directory.is_associated_dev(&dev_addr.clone());
-                std::mem::drop(active_directory);
-                if already_existing {
-                    continue;
-                }
-
-                // Create fake priv pub device key
-                let dev_fake_private_key = Some(P256SecretKey::random(&mut OsRng));
-                let dev_fake_public_key: P256PublicKey<p256::NistP256> =
-                    Some(dev_fake_private_key.clone().unwrap().public_key()).unwrap();
-                let edge_s_enc_key_vec: Vec<u8> = device.edge_s_enc_key;
-                let edge_s_enc_key_bytes: [u8; 16] = edge_s_enc_key_vec.try_into().unwrap();
-                let edge_s_enc_key: AES128 = AES128::from(edge_s_enc_key_bytes.clone());
-
-                // GET Device sessions keys
-                let edge_s_int_key_vec: Vec<u8> = device.edge_s_int_key;
-                let edge_s_int_key_bytes: [u8; 16] = edge_s_int_key_vec.try_into().unwrap();
-                let edge_s_int_key: AES128 = AES128::from(edge_s_int_key_bytes.clone());
-
-                // Add Info to dev info struct
-                let mut active_directory: MutexGuard<E2LActiveDirectory> =
-                    self.active_directory_mutex.lock().unwrap();
-                active_directory.add_associated_dev(
-                    dev_eui,
-                    dev_addr,
-                    dev_fake_public_key,
-                    edge_s_enc_key,
-                    edge_s_int_key,
-                );
-                std::mem::drop(active_directory);
-                assigned_device_number += 1;
-            }
-
-            let response = GwResponse {
-                status_code: 0,
-                message: "Devices added".to_string(),
-            };
-            println!("INFO: ADDED {} ASSIGNED DEVICES", assigned_device_number);
-            println!(
-                "INFO: ADDED {} UNASSIGNED DEVICES",
-                unassigned_device_number
-            );
-            return response;
         }
 
         pub fn handover_callback(&self, _topic: String, payload_str: String) -> Option<String> {

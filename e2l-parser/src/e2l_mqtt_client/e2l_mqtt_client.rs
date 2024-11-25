@@ -1,5 +1,4 @@
 pub(crate) mod e2l_mqtt_client {
-    extern crate p256;
 
     use futures::{executor::block_on, stream::StreamExt};
     use serde_derive::Deserialize;

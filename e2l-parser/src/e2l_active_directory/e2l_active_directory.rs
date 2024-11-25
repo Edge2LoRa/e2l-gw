@@ -1,6 +1,6 @@
 pub(crate) mod e2l_active_directory {
-    extern crate p256;
     use lorawan_encoding::keys::AES128;
+    use p256;
     use p256::elliptic_curve::PublicKey as P256PublicKey;
     use std::collections::HashMap;
 
