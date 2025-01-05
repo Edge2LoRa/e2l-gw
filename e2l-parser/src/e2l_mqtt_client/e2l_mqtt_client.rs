@@ -484,12 +484,16 @@ pub(crate) mod e2l_mqtt_client {
                                     match devices_result {
                                         Ok(devices) => {
                                             println!("INFO: Devices LENGTH: {}", devices.len());
-                                            let e2l_crypto =
-                                                self.e2l_crypto.lock().expect("Could not lock!");
                                             for device in devices {
+                                                let assigned_gw = device.assigned_gw.clone();
+                                                let e2l_crypto = self
+                                                    .e2l_crypto
+                                                    .lock()
+                                                    .expect("Could not lock!");
                                                 e2l_crypto.add_unassigned_device(device);
+                                                std::mem::drop(e2l_crypto);
+                                                self.create_gw_bridge(assigned_gw).await;
                                             }
-                                            std::mem::drop(e2l_crypto);
                                             println!("INFO: Unassigned device added");
                                         }
                                         Err(_) => {
@@ -503,10 +507,12 @@ pub(crate) mod e2l_mqtt_client {
                                         serde_json::from_str(&payload_str);
                                     match device_result {
                                         Ok(device) => {
+                                            let assigned_gw = device.assigned_gw.clone();
                                             let e2l_crypto =
                                                 self.e2l_crypto.lock().expect("Could not lock!");
                                             e2l_crypto.add_unassigned_device(device);
                                             std::mem::drop(e2l_crypto);
+                                            self.create_gw_bridge(assigned_gw).await;
                                         }
                                         Err(_) => {
                                             println!("ERROR: Invalid JSON format for 'add_unassigned_device' command");
@@ -707,6 +713,53 @@ pub(crate) mod e2l_mqtt_client {
             //         return false;
             //     }
             // }
+            true
+        }
+
+        async fn create_gw_bridge(&mut self, gw_id: String) -> bool {
+            println!("Creating bridge for gateway hadover: {}", gw_id.clone());
+            let url = format!("{}bridges", self.api_endpoint);
+            // let topic_wildcard = "${topic}".to_string();
+            let server = format!("{}:{}", gw_id.clone(), env::var("BROKER_PORT").unwrap());
+
+            // Create control bridge
+            let name_egress = format!("{}-gw-handover-bridge-egress", gw_id.clone());
+            let local_topic = format!("{}/+", self.mqtt_handover_base_topic.clone());
+            println!("INFO: Local topic: {}", local_topic);
+            let remote_topic = format!("{}", self.mqtt_handover_base_topic.clone());
+            println!("INFO: Remote topic: {}", remote_topic);
+            let egress_config = MqttBridgeEgressConfig::new(
+                name_egress.clone(),
+                server.clone(),
+                self.api_username.clone(),
+                self.api_password.clone(),
+                local_topic.clone(),
+                remote_topic.clone(),
+            );
+            let egress_response_result = Client::new()
+                .post(url.clone())
+                .basic_auth(self.api_username.clone(), Some(self.api_password.clone()))
+                .json(&egress_config)
+                .send()
+                .await;
+            if let Err(e) = egress_response_result {
+                println!("Error creating egress bridge: {:?}", e);
+                return false;
+            }
+            let egress_response = egress_response_result.unwrap();
+            if egress_response.status().is_success() {
+                println!("Egress bridge created successfully");
+                // print response
+                println!("{:?}", egress_response);
+            } else {
+                let text = egress_response.text().await.unwrap();
+                if text.contains("ALREADY_EXISTS") {
+                    println!("Bridge already exists");
+                } else {
+                    println!("Error creating bridge: {:?}", text);
+                    return false;
+                }
+            }
             true
         }
     }
