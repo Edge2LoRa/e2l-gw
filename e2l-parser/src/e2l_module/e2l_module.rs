@@ -329,7 +329,17 @@ pub(crate) mod e2l_module {
                 ..Default::default()
             };
 
-            let hostname: String = gethostname().into_string().unwrap();
+            // GET HOSTNAME
+            let hostname: String;
+            let hostname_env = dotenv::var("HOSTNAME");
+            match hostname_env {
+                Ok(hostname_env) => {
+                    hostname = hostname_env;
+                }
+                Err(_) => {
+                    hostname = gethostname().into_string().unwrap();
+                }
+            }
 
             /*
              * E2LCrypto
@@ -395,23 +405,7 @@ pub(crate) mod e2l_module {
                     tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
                 rt.block_on(handover_mqtt_client.run_handover_client());
             });
-            // /*****************
-            //  * RPC SERVER    *
-            //  *****************/
-            // let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
-            // let rpc_endpoint = format!("0.0.0.0:{}", gw_rpc_endpoint_port.clone());
-            // let rt = tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
 
-            // let rpc_server: Edge2GatewayServerStruct =
-            //     Edge2GatewayServerStruct::new(Arc::clone(&self.e2l_crypto));
-            // let servicer: Router =
-            //     Server::builder().add_service(Edge2GatewayServer::new(rpc_server));
-            // thread::spawn(move || {
-            //     let server_future = servicer.serve(rpc_endpoint.parse().unwrap());
-            //     rt.block_on(server_future)
-            //         .expect("RPC Server failed to start");
-            // });
-            // Self::info(format!("RPC SERVER STARTED!"));
             /***********************
              * SEND PUB INFO TO AS *
              ***********************/
@@ -431,29 +425,6 @@ pub(crate) mod e2l_module {
             mqtt_client
                 .publish_to_control("pub_info".to_string(), gw_pub_info_str)
                 .await;
-
-            // // INIT RPC CLIENT
-            // let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
-            // let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
-            // let gw_rpc_endpoint_port = dotenv::var("GW_RPC_ENDPOINT_PORT").unwrap();
-
-            // let hostname = self.hostname.lock().expect("Could not lock!");
-            // let request: tonic::Request<E2gwPubInfo> = tonic::Request::new(E2gwPubInfo {
-            //     gw_ip_addr: hostname.clone(),
-            //     gw_port: gw_rpc_endpoint_port.clone(),
-            //     e2gw_pub_key: compressed_public_key.into_vec(),
-            // });
-            // std::mem::drop(hostname);
-            // sleep 3 sec
-
-            // std::thread::sleep(Duration::from_millis(10000));
-            // let mut rpc_client = self.rpc_client.lock().expect("Could not lock.");
-            // let response = rpc_client.store_e2gw_pub_info(request).await?;
-            // let status_code = response.get_ref().status_code;
-            // if status_code < 200 || status_code > 299 {
-            //     return Err("Unable to send public key to the AS".into());
-            // }
-            // std::mem::drop(rpc_client);
 
             /**********************
              * TTS UDP CONNECTION *
