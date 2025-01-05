@@ -57,10 +57,19 @@ pub(crate) mod e2l_active_directory {
             self.unassociated_dev_info.insert(
                 dev_addr.clone(),
                 UnassociatedDevInfo {
-                    dev_eui,
-                    dev_addr,
+                    dev_eui: dev_eui.clone(),
+                    dev_addr: dev_addr.clone(),
                     e2gw_id,
                 },
+            );
+            println!(
+                "ACTIVE DIRECTORY: Unassociated device added: {}",
+                dev_addr.clone()
+            );
+            println!("ASSOCIATED DEVICES LEN: {}", self.associated_dev_info.len());
+            println!(
+                "UNASSOCIATED DEVICES LEN: {}",
+                self.unassociated_dev_info.len()
             );
         }
 
@@ -91,7 +100,7 @@ pub(crate) mod e2l_active_directory {
             self.associated_dev_info.insert(
                 dev_addr.clone(),
                 AssociatedDevInfo {
-                    dev_eui,
+                    dev_eui: dev_eui.clone(),
                     dev_addr: dev_addr.clone(),
                     dev_public_key,
                     edge_s_enc_key,
@@ -99,8 +108,15 @@ pub(crate) mod e2l_active_directory {
                     fcnts: fncts,
                 },
             );
-            println!("ACTIVE DIRECTORY: Associated device added: {}", dev_addr);
+            println!(
+                "ACTIVE DIRECTORY: Associated device added: {}",
+                dev_addr.clone()
+            );
             println!("ASSOCIATED DEVICES LEN: {}", self.associated_dev_info.len());
+            println!(
+                "UNASSOCIATED DEVICES LEN: {}",
+                self.unassociated_dev_info.len()
+            );
         }
 
         /*

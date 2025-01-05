@@ -440,6 +440,26 @@ pub(crate) mod e2l_mqtt_client {
                             // get last elem
                             let command = topic_parts[topic_parts.len() - 1];
                             match command {
+                                "add_assigned_devices" => {
+                                    println!("INFO: Command 'add_assigned_devices' received");
+                                    let devices_result: Result<Vec<NewAssignedDevice>, Error> =
+                                        serde_json::from_str(&payload_str);
+                                    match devices_result {
+                                        Ok(devices) => {
+                                            println!("INFO: Devices LENGTH: {}", devices.len());
+                                            let e2l_crypto =
+                                                self.e2l_crypto.lock().expect("Could not lock!");
+                                            for device in devices {
+                                                e2l_crypto.add_assigned_device(device);
+                                            }
+                                            std::mem::drop(e2l_crypto);
+                                            println!("INFO: Assigned device added");
+                                        }
+                                        Err(_) => {
+                                            println!("ERROR: Invalid JSON format for 'add_assigned_device' command");
+                                        }
+                                    }
+                                }
                                 "add_assigned_device" => {
                                     println!("INFO: Command 'add_assigned_device' received");
                                     let device_result: Result<NewAssignedDevice, Error> =
@@ -454,6 +474,26 @@ pub(crate) mod e2l_mqtt_client {
                                         }
                                         Err(_) => {
                                             println!("ERROR: Invalid JSON format for 'add_assigned_device' command");
+                                        }
+                                    }
+                                }
+                                "add_unassigned_devices" => {
+                                    println!("INFO: Command 'add_unassigned_devices' received");
+                                    let devices_result: Result<Vec<NewUnassociatedDevice>, Error> =
+                                        serde_json::from_str(&payload_str);
+                                    match devices_result {
+                                        Ok(devices) => {
+                                            println!("INFO: Devices LENGTH: {}", devices.len());
+                                            let e2l_crypto =
+                                                self.e2l_crypto.lock().expect("Could not lock!");
+                                            for device in devices {
+                                                e2l_crypto.add_unassigned_device(device);
+                                            }
+                                            std::mem::drop(e2l_crypto);
+                                            println!("INFO: Unassigned device added");
+                                        }
+                                        Err(_) => {
+                                            println!("ERROR: Invalid JSON format for 'add_unassigned_device' command");
                                         }
                                     }
                                 }
