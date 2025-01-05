@@ -62,15 +62,15 @@ pub(crate) mod e2l_active_directory {
                     e2gw_id,
                 },
             );
-            println!(
-                "ACTIVE DIRECTORY: Unassociated device added: {}",
-                dev_addr.clone()
-            );
-            println!("ASSOCIATED DEVICES LEN: {}", self.associated_dev_info.len());
-            println!(
-                "UNASSOCIATED DEVICES LEN: {}",
-                self.unassociated_dev_info.len()
-            );
+            // println!(
+            //     "ACTIVE DIRECTORY: Unassociated device added: {}",
+            //     dev_addr.clone()
+            // );
+            // println!("ASSOCIATED DEVICES LEN: {}", self.associated_dev_info.len());
+            // println!(
+            //     "UNASSOCIATED DEVICES LEN: {}",
+            //     self.unassociated_dev_info.len()
+            // );
         }
 
         /*
@@ -108,15 +108,15 @@ pub(crate) mod e2l_active_directory {
                     fcnts: fncts,
                 },
             );
-            println!(
-                "ACTIVE DIRECTORY: Associated device added: {}",
-                dev_addr.clone()
-            );
-            println!("ASSOCIATED DEVICES LEN: {}", self.associated_dev_info.len());
-            println!(
-                "UNASSOCIATED DEVICES LEN: {}",
-                self.unassociated_dev_info.len()
-            );
+            // println!(
+            //     "ACTIVE DIRECTORY: Associated device added: {}",
+            //     dev_addr.clone()
+            // );
+            // println!("ASSOCIATED DEVICES LEN: {}", self.associated_dev_info.len());
+            // println!(
+            //     "UNASSOCIATED DEVICES LEN: {}",
+            //     self.unassociated_dev_info.len()
+            // );
         }
 
         /*

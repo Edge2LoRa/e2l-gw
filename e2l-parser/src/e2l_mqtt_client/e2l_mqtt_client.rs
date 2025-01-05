@@ -4,6 +4,7 @@ pub(crate) mod e2l_mqtt_client {
     use serde_derive::Deserialize;
     use serde_derive::Serialize;
     use serde_json::Error;
+    use std::collections::HashSet;
     use std::env;
     use std::sync::{Arc, Mutex};
 
@@ -386,8 +387,9 @@ pub(crate) mod e2l_mqtt_client {
         }
 
         pub async fn run_handover_client(&mut self) {
-            let subscribe_topic: String =
-                format!("{}/{}", self.mqtt_handover_base_topic.clone(), self.gw_id);
+            let subscribe_topic: String = format!("{}", self.mqtt_handover_base_topic.clone());
+            // let subscribe_topic: String =
+            //     format!("{}/{}", self.mqtt_handover_base_topic.clone(), self.gw_id);
             let mut strm = self.mqtt_client.get_stream(128);
             self.mqtt_client.subscribe(subscribe_topic, self.mqtt_qos);
 
@@ -446,14 +448,17 @@ pub(crate) mod e2l_mqtt_client {
                                         serde_json::from_str(&payload_str);
                                     match devices_result {
                                         Ok(devices) => {
-                                            println!("INFO: Devices LENGTH: {}", devices.len());
+                                            let devices_len = devices.len();
                                             let e2l_crypto =
                                                 self.e2l_crypto.lock().expect("Could not lock!");
                                             for device in devices {
                                                 e2l_crypto.add_assigned_device(device);
                                             }
                                             std::mem::drop(e2l_crypto);
-                                            println!("INFO: Assigned device added");
+                                            println!(
+                                                "INFO: {} assigned devices added",
+                                                devices_len
+                                            );
                                         }
                                         Err(_) => {
                                             println!("ERROR: Invalid JSON format for 'add_assigned_device' command");
@@ -483,18 +488,25 @@ pub(crate) mod e2l_mqtt_client {
                                         serde_json::from_str(&payload_str);
                                     match devices_result {
                                         Ok(devices) => {
-                                            println!("INFO: Devices LENGTH: {}", devices.len());
+                                            let mut assigned_gws: HashSet<String> = HashSet::new();
+                                            let devices_len = devices.len();
                                             for device in devices {
-                                                let assigned_gw = device.assigned_gw.clone();
+                                                assigned_gws.insert(device.assigned_gw.clone());
                                                 let e2l_crypto = self
                                                     .e2l_crypto
                                                     .lock()
                                                     .expect("Could not lock!");
                                                 e2l_crypto.add_unassigned_device(device);
                                                 std::mem::drop(e2l_crypto);
+                                            }
+                                            println!(
+                                                "INFO: {} unassigned devices added",
+                                                devices_len
+                                            );
+                                            for assigned_gw in assigned_gws {
                                                 self.create_gw_bridge(assigned_gw).await;
                                             }
-                                            println!("INFO: Unassigned device added");
+                                            println!("INFO: Bridge created for assigned gateways");
                                         }
                                         Err(_) => {
                                             println!("ERROR: Invalid JSON format for 'add_unassigned_device' command");
@@ -750,7 +762,7 @@ pub(crate) mod e2l_mqtt_client {
             if egress_response.status().is_success() {
                 println!("Egress bridge created successfully");
                 // print response
-                println!("{:?}", egress_response);
+                // println!("{:?}", egress_response);
             } else {
                 let text = egress_response.text().await.unwrap();
                 if text.contains("ALREADY_EXISTS") {

@@ -287,6 +287,7 @@ pub(crate) mod e2l_crypto {
                                     rx_gw = self.gw_id.clone();
                                 }
                             }
+                            // TODO: ADD CONTROL MESSAGE FOR DEVICE POSITION
                             return Some(MqttJson {
                                 dev_eui: dev_info.dev_eui.clone(),
                                 dev_addr: dev_info.dev_addr.clone(),
@@ -407,10 +408,10 @@ pub(crate) mod e2l_crypto {
                 edge_s_int_key,
             );
             std::mem::drop(active_directory);
-            println!(
-                "E2L CRYPTO: Added dev addr: {:?} to active directory ASSIGNED.",
-                dev_addr.clone()
-            );
+            // println!(
+            //     "E2L CRYPTO: Added dev addr: {:?} to active directory ASSIGNED.",
+            //     dev_addr.clone()
+            // );
         }
 
         pub fn add_unassigned_device(&self, device: NewUnassociatedDevice) {
@@ -423,11 +424,11 @@ pub(crate) mod e2l_crypto {
                 self.active_directory_mutex.lock().unwrap();
             active_directory.add_unassociated_dev(dev_eui, dev_addr.clone(), assigned_gw);
             std::mem::drop(active_directory);
-            println!(
-                "Added dev addr: {:?}
-                to active directory UNASSIGNED.",
-                dev_addr.clone()
-            );
+            // println!(
+            //     "Added dev addr: {:?}
+            //     to active directory UNASSIGNED.",
+            //     dev_addr.clone()
+            // );
         }
 
         pub fn handover_callback(&self, _topic: String, payload_str: String) -> Option<String> {
