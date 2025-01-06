@@ -4,6 +4,7 @@ metadata:
   name: e2gw
   namespace: edge2lora
 spec:
+  serviceName: e2gw-headless-svc
   selector:
     matchLabels:
       app: e2gw
@@ -52,21 +53,21 @@ spec:
         - name: api-key
           mountPath: /opt/emqx/etc/default_api_key/
       - name: parser
-        image: ghcr.io/edge2lora/e2l-parser:load-balancing-12
+        image: ghcr.io/edge2lora/e2l-parser:k8s-3
         ports:
         - containerPort: 1680
           name: udp
         - containerPort: 50052
           name: grpc
         env:
-        - name: AGENT_BIND_ADDRESS
+        - name: AGENT_BIND_ADDR
           value: "0.0.0.0"
         - name: AGENT_PORT
           value: "1680"
         - name: GW_RPC_ENDPOINT_PORT
           value: "50052"
         - name: NB_HOST
-          value: "TBD"
+          value: eu1.cloud.thethings.network
         - name: NB_PORT
           value: "1700"
         - name: FILE_AND_PATH
@@ -75,6 +76,8 @@ spec:
           value: "localhost"
         - name: BROKER_PORT
           value: "1883"
+        - name: BROKER_API_PORT
+          value: "18083"
         - name: BROKER_QOS
           value: "1"
         - name: BROKER_AUTH_USERNAME
@@ -98,52 +101,54 @@ spec:
               name: api-broker-credentials
               key: api-broker-password
         - name: BROKER_PROCESS_TOPIC
-          value: "e2l/process/input"
+          value: "edge2lora/process"
         - name: MQTT_TOPIC_OUTPUT
-          value: "e2l/process/output"
-        - name: BROKER_HANDOVER_TOPIC
-          value: "e2l/handover"
+          value: "e2l-process/output/aggregation"
+        - name: BROKER_HANDOVER_BASE_TOPIC
+          value: "edge2lora/handover"
         - name: BROKER_CONTROL_TOPIC
-          value: "e2l/control"
+          value: "edge2lora/control"
         - name: MQTT_SINK_HOST
-          value: "e2as-broker"
+          value: "e2as-0.e2as-headless-svc.edge2lora.svc.cluster.local"
         - name: MQTT_SINK_PORT
           value: "1883"
+        - name: GW_SERVICE_NAME
+          value: "e2gw-headless-svc.edge2lora.svc.cluster.local"
         - name: IGNORE_LOGS
           value: "1"
         - name: DEBUG
           value: "false"
-      - name: process
-        image: ghcr.io/edge2lora/e2l-process:hampel-load-balancing-12
-        env:
-        - name: MQTT_USERNAME
-          valueFrom:
-            secretKeyRef:
-              name: mqtt-broker-credentials
-              key: mqtt-broker-username
-        - name: MQTT_PASSWORD
-          valueFrom:
-            secretKeyRef:
-              name: mqtt-broker-credentials
-              key: mqtt-broker-password
-        - name: MQTT_BROKER_HOST
-          value: "localhost"
-        - name: MQTT_BROKER_PORT
-          value: "1883"
-        - name: MQTT_TOPIC
-          value: "e2l/process/input"
-        - name: MQTT_TOPIC_OUTPUT
-          value: "e2l/process/output"
-        - name: WINDOW_SIZE_HAMPEL
-          value: "600"
-        - name: WINDOW_SIZE
-          value: "60"
-        - name: SLIDE_INTERVAL
-          value: "60"
-        - name: N_SIGMA
-          value: "3.5"
-        - name: CORE_NUMBER
-          value: "*"
+      # - name: process
+      #   image: ghcr.io/edge2lora/e2l-process:hampel-load-balancing-12
+      #   env:
+      #   - name: MQTT_USERNAME
+      #     valueFrom:
+      #       secretKeyRef:
+      #         name: mqtt-broker-credentials
+      #         key: mqtt-broker-username
+      #   - name: MQTT_PASSWORD
+      #     valueFrom:
+      #       secretKeyRef:
+      #         name: mqtt-broker-credentials
+      #         key: mqtt-broker-password
+      #   - name: MQTT_BROKER_HOST
+      #     value: "localhost"
+      #   - name: MQTT_BROKER_PORT
+      #     value: "1883"
+      #   - name: MQTT_TOPIC
+      #     value: "e2l/process/input"
+      #   - name: MQTT_TOPIC_OUTPUT
+      #     value: "e2l/process/output"
+      #   - name: WINDOW_SIZE_HAMPEL
+      #     value: "600"
+      #   - name: WINDOW_SIZE
+      #     value: "60"
+      #   - name: SLIDE_INTERVAL
+      #     value: "60"
+      #   - name: N_SIGMA
+      #     value: "3.5"
+      #   - name: CORE_NUMBER
+      #     value: "*"
 ---
 apiVersion: v1
 kind: Service

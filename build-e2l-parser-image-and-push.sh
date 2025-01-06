@@ -8,7 +8,9 @@ fi
 
 image_tag=$1
 
-docker buildx build --platform=linux/amd64,linux/arm64 \
+    #--platform=linux/amd64,linux/arm64 \
+docker buildx build \
+    --platform=linux/amd64 \
     -t ghcr.io/edge2lora/e2l-parser:$image_tag \
     -f e2l-parser.Dockerfile \
     --push \

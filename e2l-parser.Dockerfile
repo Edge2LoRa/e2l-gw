@@ -14,11 +14,10 @@ RUN apk update && apk add --no-cache libc-dev make protobuf-dev openssl-dev cmak
 WORKDIR /home/${UNAME}/${APP_NAME}
 USER ${UNAME}:${UNAME}
 
-COPY .cargo/ .cargo
-COPY protos/ protos/
-COPY src/ src/
-COPY build.rs build.rs
-COPY Cargo.* ./
+COPY --chown=${UNAME}:${UNAME} .cargo/ .cargo
+COPY --chown=${UNAME}:${UNAME} src/ src/
+COPY --chown=${UNAME}:${UNAME} Cargo.toml ./Cargo.toml
+COPY --chown=${UNAME}:${UNAME} Cargo.lock ./Cargo.lock
 
 RUN RUSTFLAGS='-C target-feature=-crt-static' cargo build --release
 
@@ -38,7 +37,7 @@ RUN apk update && apk add --no-cache libc-dev protobuf-dev openssl-dev && \
 WORKDIR /home/${UNAME}/${APP_NAME}
 USER ${UNAME}:${UNAME}
 
-COPY --from=builder /home/e2l/e2l-parser/target/release/e2l-parser ./
+COPY --chown=${UNAME}:${UNAME} --from=builder /home/e2l/e2l-parser/target/release/e2l-parser ./
 
 EXPOSE 1680/udp
 

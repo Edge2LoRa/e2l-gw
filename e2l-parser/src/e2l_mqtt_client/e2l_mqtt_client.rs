@@ -669,14 +669,6 @@ pub(crate) mod e2l_mqtt_client {
                 local_topic.clone(),
                 remote_topic.clone(),
             );
-            // let ingress_config = MqttBridgeIngressConfig::new(
-            //     name_ingress.clone(),
-            //     server.clone(),
-            //     self.api_username.clone(),
-            //     self.api_password.clone(),
-            //     local_topic.clone(),
-            //     remote_topic.clone(),
-            // );
             let egress_response_result = Client::new()
                 .post(url.clone())
                 .basic_auth(self.api_username.clone(), Some(self.api_password.clone()))
@@ -701,30 +693,6 @@ pub(crate) mod e2l_mqtt_client {
                     return false;
                 }
             }
-            // let ingress_response_result = Client::new()
-            //     .post(url.clone())
-            //     .basic_auth(self.api_username.clone(), Some(self.api_password.clone()))
-            //     .json(&ingress_config)
-            //     .send()
-            //     .await;
-            // if let Err(e) = ingress_response_result {
-            //     println!("Error creating ingress bridge: {:?}", e);
-            //     return false;
-            // }
-            // let ingress_response = ingress_response_result.unwrap();
-            // if ingress_response.status().is_success() {
-            //     println!("Ingress bridge created successfully");
-            //     // print response
-            //     println!("{:?}", ingress_response);
-            // } else {
-            //     let text = ingress_response.text().await.unwrap();
-            //     if text.contains("ALREADY_EXISTS") {
-            //         println!("Bridge already exists");
-            //     } else {
-            //         println!("Error creating bridge: {:?}", text);
-            //         return false;
-            //     }
-            // }
             true
         }
 
@@ -732,7 +700,15 @@ pub(crate) mod e2l_mqtt_client {
             println!("Creating bridge for gateway hadover: {}", gw_id.clone());
             let url = format!("{}bridges", self.api_endpoint);
             // let topic_wildcard = "${topic}".to_string();
-            let server = format!("{}:{}", gw_id.clone(), env::var("BROKER_PORT").unwrap());
+            let mut fqdn = gw_id.clone();
+            let gw_service_name_env = env::var("GW_SERVICE_NAME");
+            match gw_service_name_env {
+                Ok(gw_service_name) => {
+                    fqdn = format!("{}.{}", gw_id.clone(), gw_service_name);
+                }
+                Err(_) => {}
+            }
+            let server = format!("{}:{}", fqdn, env::var("BROKER_PORT").unwrap());
 
             // Create control bridge
             let name_egress = format!("{}-gw-handover-bridge-egress", gw_id.clone());
