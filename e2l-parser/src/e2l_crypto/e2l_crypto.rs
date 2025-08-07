@@ -10,11 +10,30 @@ pub(crate) mod e2l_crypto {
     // MUTEX
     use std::sync::{Arc, Mutex, MutexGuard};
 
-    // NEW FRAMES COUNTERS
-    pub static mut RX_FRAMES: u32 = 0;
-    pub static mut TX_FRAMES: u32 = 0;
-    pub static mut FW_FRAMES: u32 = 0;
-    pub static mut PROC_FRAMES: u32 = 0;
+    // One Global variable will be used by multiple threads
+    use once_cell::sync::Lazy;
+
+    #[derive(Debug)]
+    pub struct FrameCounters {
+        pub rx_frames: u32,
+        pub tx_frames: u32,
+        pub fw_frames: u32,
+        pub proc_frames: u32,
+    }
+    impl Default for FrameCounters {
+        fn default() -> Self {
+            FrameCounters {
+                rx_frames: 0,
+                tx_frames: 0,
+                fw_frames: 0,
+                proc_frames: 0,
+            }
+        }
+    }
+    // A thread-safe, global mutable instance
+    pub static FRAME_COUNTERS: Lazy<Mutex<FrameCounters>> = Lazy::new(|| {
+        Mutex::new(FrameCounters::default())
+    });
     // Crypto
     use gethostname::gethostname;
     use p256;

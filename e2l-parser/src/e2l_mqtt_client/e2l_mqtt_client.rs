@@ -9,7 +9,7 @@ pub(crate) mod e2l_mqtt_client {
     use std::sync::{Arc, Mutex};
 
     use crate::e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto;
-    use crate::e2l_crypto::e2l_crypto::e2l_crypto::TX_FRAMES;
+    use crate::e2l_crypto::e2l_crypto::e2l_crypto::FRAME_COUNTERS;
     use paho_mqtt as mqtt;
     use reqwest::Client;
     use std::time::Duration;
@@ -441,6 +441,7 @@ pub(crate) mod e2l_mqtt_client {
                             let topic_parts: Vec<&str> = topic.split("/").collect();
                             // get last elem
                             let command = topic_parts[topic_parts.len() - 1];
+                            let mut counters = FRAME_COUNTERS.lock().unwrap();
                             match command {
                                 "add_assigned_devices" => {
                                     println!("INFO: Command 'add_assigned_devices' received");
@@ -583,9 +584,7 @@ pub(crate) mod e2l_mqtt_client {
                                 }
                                 "aggregation_completed" => {
                                     println!("INFO: Command 'aggregation_completed' received");
-                                    unsafe {
-                                        TX_FRAMES = TX_FRAMES + 1;
-                                    }
+                                    counters.rx_frames += 1;
                                 }
                                 _ => {
                                     println!("INFO: Unknown command received");

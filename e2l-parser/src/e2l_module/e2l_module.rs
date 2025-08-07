@@ -1,5 +1,5 @@
 pub(crate) mod e2l_module {
-    use crate::e2l_crypto::e2l_crypto::e2l_crypto::{FW_FRAMES, PROC_FRAMES, RX_FRAMES, TX_FRAMES};
+    use crate::e2l_crypto::e2l_crypto::e2l_crypto::FRAME_COUNTERS;
     use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo};
     use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables};
     use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
@@ -144,21 +144,9 @@ pub(crate) mod e2l_module {
                     mqtt_variables,
                     e2l_crypto_clone_publisher,
                 );
+                let counters = FRAME_COUNTERS.lock().unwrap();
+
                 loop {
-                    let rx_frames: u32;
-                    let tx_frames: u32;
-                    let fw_frames: u32;
-                    let proc_frames: u32;
-                    unsafe {
-                        rx_frames = RX_FRAMES.clone();
-                        tx_frames = TX_FRAMES.clone();
-                        fw_frames = FW_FRAMES.clone();
-                        proc_frames = PROC_FRAMES.clone();
-                        RX_FRAMES = 0;
-                        TX_FRAMES = 0;
-                        FW_FRAMES = 0;
-                        PROC_FRAMES = 0;
-                    }
                     s.refresh_memory();
                     let used_memory = s.used_memory();
                     let available_memory = s.available_memory();
@@ -171,17 +159,16 @@ pub(crate) mod e2l_module {
 
                     let gw_stats_obj = GwStats {
                         gw_id: hostname.clone(),
-                        rx_frames: rx_frames,
-                        tx_frames: tx_frames,
-                        fw_frames: fw_frames,
-                        proc_frames: proc_frames,
+                        rx_frames: counters.rx_frames,
+                        tx_frames: counters.tx_frames,
+                        fw_frames: counters.fw_frames,
+                        proc_frames: counters.proc_frames,
                         mem_usage: used_memory as f32 / available_memory as f32,
                         cpu_usage: used_cpu,
                     };
 
                     let gw_stats_str = serde_json::to_string(&gw_stats_obj).unwrap();
-
-                    let _ = mqtt_client.publish_to_process(gw_stats_str.clone());
+                    let _ = mqtt_client.publish_to_process(gw_stats_str);
 
                     thread::sleep(Duration::from_millis(5000));
                 }
@@ -213,11 +200,10 @@ pub(crate) mod e2l_module {
             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
             is_active = e2l_crypto.is_active();
             std::mem::drop(e2l_crypto);
+            let mut counters = FRAME_COUNTERS.lock().unwrap();
             if is_active {
                 // UPDATE RX_FRAMES COUNTER
-                unsafe {
-                    RX_FRAMES = RX_FRAMES + 1;
-                }
+                counters.rx_frames += 1;
                 // get epoch time
                 let start = SystemTime::now();
                 let _timetag = start
@@ -243,9 +229,7 @@ pub(crate) mod e2l_module {
                     std::mem::drop(e2l_crypto);
                     match mqtt_payload_option {
                         Some(mqtt_payload) => {
-                            unsafe {
-                                PROC_FRAMES = PROC_FRAMES + 1;
-                            }
+                            counters.proc_frames += 1;
                             let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                 .unwrap_or_else(|_| "Error".to_string());
                             mqtt_client
@@ -273,9 +257,7 @@ pub(crate) mod e2l_module {
 
                             match mqtt_payload_option {
                                 Some(mqtt_payload) => {
-                                    unsafe {
-                                        FW_FRAMES = FW_FRAMES + 1;
-                                    }
+                                    counters.fw_frames += 1;
                                     let gw_id = mqtt_payload.gw_id.clone();
                                     let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                         .unwrap_or_else(|_| "Error".to_string());
@@ -293,9 +275,7 @@ pub(crate) mod e2l_module {
                                         "Forwarding to NS: {:x?}",
                                         fwinfo.forward_host.clone()
                                     ));
-                                    unsafe {
-                                        TX_FRAMES = TX_FRAMES + 1;
-                                    }
+                                    counters.rx_frames += 1;
                                 } // _ => panic!("Forwarding protocol not implemented!"),
                             }
 
@@ -609,7 +589,7 @@ pub(crate) mod e2l_module {
                                     Self::debug(format!("Extracted GwMac {:x?}", gwmac));
 
                                     let parsed_data = parse(data.clone());
-
+                                    
                                     match parsed_data {
                                         Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
                                             let will_send_option = self
