@@ -589,7 +589,6 @@ pub(crate) mod e2l_module {
                                     Self::debug(format!("Extracted GwMac {:x?}", gwmac));
 
                                     let parsed_data = parse(data.clone());
-                                    
                                     match parsed_data {
                                         Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
                                             let will_send_option = self
