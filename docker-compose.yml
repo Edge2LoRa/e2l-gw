@@ -54,6 +54,6 @@ services:
 networks:
   e2l_network:
     driver: bridge
-#     name: e2l_network
+    name: e2l_network
 #     driver: overlay
 #     external: true
