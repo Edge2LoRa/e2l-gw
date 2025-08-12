@@ -67,7 +67,7 @@ pub(crate) mod e2l_mqtt_client {
         pub data: String,
     }
 
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct GwStats {
         pub gw_id: String,
         pub rx_frames: u32,

@@ -29,6 +29,7 @@ pub(crate) mod e2l_module {
     // RPC
 
     use std::{net::UdpSocket, sync::mpsc::channel, thread};
+    use serde::Serialize;
 
     /********************
      * STATIC VARIABLES *
@@ -59,6 +60,12 @@ pub(crate) mod e2l_module {
         hostname: Arc<Mutex<String>>,
         fwinfo: Arc<Mutex<ForwardInfo>>,
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
+    }
+
+    #[derive(Serialize)]
+    struct CombinedMessage<'a> {
+        packet: &'a RxpkContent,
+        gw_stats: &'a GwStats,
     }
 
     // STATIC FUNCTION
@@ -123,7 +130,14 @@ pub(crate) mod e2l_module {
 
     // PRIVATE FUNCTIONS
     impl E2LModule {
-        async fn start_gw_stats_thread(&self) {
+        async fn start_gw_stats_thread(&self) -> GwStats {
+            // Passing the GW status as an object to the load_balancer_interface()
+            // Create a thread-safe, shared container for `GwStats`.
+            let shared_stats: Arc<Mutex<Option<GwStats>>> = Arc::new(Mutex::new(None));
+            // `shared_clone` is a cloned handle to the same shared state, allowing
+            // another thread to update or read the stats concurrently.
+            let shared_clone = Arc::clone(&shared_stats);
+
             Self::info(format!("Starting System counter stats thread!"));
             let hostname_mut = self.hostname.lock().expect("Could not lock!");
             let hostname = hostname_mut.clone();
@@ -166,13 +180,29 @@ pub(crate) mod e2l_module {
                         mem_usage: used_memory as f32 / available_memory as f32,
                         cpu_usage: used_cpu,
                     };
+                    //lock the thread and make clone out of gw_stats_obj
+                    let mut lock = shared_clone.lock().unwrap();
+                    *lock = Some(gw_stats_obj.clone());
+
+
 
                     let gw_stats_str = serde_json::to_string(&gw_stats_obj).unwrap();
                     let _ = mqtt_client.publish_to_process(gw_stats_str);
-
+                    
                     thread::sleep(Duration::from_millis(5000));
                 }
             });
+            // Continuously attempts to acquire the latest gateway stats from the shared state.
+            loop {
+                    {
+                        let lock = shared_stats.lock().unwrap();
+                        if let Some(stats) = &*lock {
+                            return stats.clone(); 
+                        }
+                    }
+                // Sleep to avoid tight loop
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            }
         }
 
         async fn handle_data_payload(
@@ -289,6 +319,17 @@ pub(crate) mod e2l_module {
                 return None;
             }
             return Some(will_send);
+        }
+        
+        
+        async fn load_balancer_interface(&self, packet: &RxpkContent, gw_stats: &GwStats) {
+           let message = CombinedMessage {
+                packet: &packet,
+                gw_stats: &gw_stats,
+            };
+
+            let lb_json = serde_json::to_string(&message).unwrap();
+            println!("Combined JSON: {}", lb_json);
         }
     }
 
@@ -455,13 +496,17 @@ pub(crate) mod e2l_module {
              * GW STATS LOOP *
              ******************/
 
-            self.start_gw_stats_thread().await;
+            let gw_stats:GwStats=self.start_gw_stats_thread().await;
 
             /*************
              * MAIN LOOP *
              *************/
             let mut client_map = HashMap::new();
             let mut buf = [0; 64 * 1024];
+            // let mut client_map = Arc::new(Mutex::new(HashMap::new()));
+            // let mut buf = [0u8; 1024];
+            // println!("Buf{:?}", buf);
+            
 
             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock");
             e2l_crypto.set_active(true);
@@ -472,6 +517,7 @@ pub(crate) mod e2l_module {
                 //we create a new thread for each unique client
                 let mut remove_existing = false;
                 loop {
+                    println!("I am here...........,too!");
                     Self::debug(format!("Received packet from client {}", src_addr));
 
                     let mut ignore_failure = true;
@@ -587,8 +633,11 @@ pub(crate) mod e2l_module {
 
                                     let gwmac: String = hex::encode(&to_send[4..12]);
                                     Self::debug(format!("Extracted GwMac {:x?}", gwmac));
-
+                                    
                                     let parsed_data = parse(data.clone());
+                                    /*test */                     
+                                    self.load_balancer_interface(&packet,&gw_stats).await;
+    
                                     match parsed_data {
                                         Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
                                             let will_send_option = self
