@@ -173,7 +173,10 @@ pub(crate) mod e2l_module {
                             proc_frames: counters.proc_frames,
                         },
                         mem_usage: used_memory as f32 / available_memory as f32,
+                        mem_usage_percentage: (used_memory as f32 / available_memory as f32)*100.0,
+                        mem_available: available_memory,
                         cpu_usage: used_cpu,
+                        cpu_usage_percentage: used_cpu*100.0,
                     };
                     //lock the thread and make clone out of gw_stats_obj
                     let mut lock = shared_clone.lock().unwrap();

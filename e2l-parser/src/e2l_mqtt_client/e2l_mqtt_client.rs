@@ -100,7 +100,10 @@ pub(crate) mod e2l_mqtt_client {
         pub gw_id: String,
         pub frame: FrameCounters,
         pub mem_usage: f32,
+        pub mem_usage_percentage: f32,
+        pub mem_available: u64,
         pub cpu_usage: f32,
+        pub cpu_usage_percentage:f32,
     }
 
     #[derive(Debug, Serialize, Deserialize)]
