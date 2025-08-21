@@ -9,11 +9,39 @@ pub(crate) mod e2l_mqtt_client {
     use std::sync::{Arc, Mutex};
 
     use crate::e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto;
-    use crate::e2l_crypto::e2l_crypto::e2l_crypto::FRAME_COUNTERS;
+    //use crate::e2l_crypto::e2l_crypto::e2l_crypto::FRAME_COUNTERS;
     use paho_mqtt as mqtt;
     use reqwest::Client;
     use std::time::Duration;
+    
+    // One Global variable will be used by multiple threads
+    use once_cell::sync::Lazy;
 
+    #[derive(Debug, Serialize, Deserialize, Clone)]
+    pub struct FrameCounters {
+        pub rx_frames: u32,
+        pub tx_frames: u32,
+        pub fw_frames: u32,
+        pub tx_ho_frames: u32,
+        pub rx_ho_frames: u32,
+        pub proc_frames: u32,
+    }
+    impl Default for FrameCounters {
+        fn default() -> Self {
+            FrameCounters {
+                rx_frames: 0,
+                tx_frames: 0,
+                fw_frames: 0,
+                tx_ho_frames: 0,
+                rx_ho_frames: 0,
+                proc_frames: 0,
+            }
+        }
+    }
+    // A thread-safe, global mutable instance
+    pub static FRAME_COUNTERS: Lazy<Mutex<FrameCounters>> = Lazy::new(|| {
+        Mutex::new(FrameCounters::default())
+    });
     #[derive(Debug, Serialize, Deserialize)]
     pub struct MqttVariables {
         pub broker_url: String,
@@ -70,10 +98,7 @@ pub(crate) mod e2l_mqtt_client {
     #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct GwStats {
         pub gw_id: String,
-        pub rx_frames: u32,
-        pub tx_frames: u32,
-        pub fw_frames: u32,
-        pub proc_frames: u32,
+        pub frame: FrameCounters,
         pub mem_usage: f32,
         pub cpu_usage: f32,
     }
