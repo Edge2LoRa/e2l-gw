@@ -1,8 +1,8 @@
 pub(crate) mod e2l_module {
-    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::FRAME_COUNTERS;
+    use crate::e2l_crypto::e2l_crypto::e2l_crypto::FRAME_COUNTERS;
     use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo};
-    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables, FrameCounters};
-    use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
+    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables};
+    use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent, RxpkContentLb};
     use crate::lorawan_structs::lorawan_structs::ForwardProtocols;
     use crate::{
         e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto,
@@ -29,6 +29,7 @@ pub(crate) mod e2l_module {
     // RPC
 
     use std::{net::UdpSocket, sync::mpsc::channel, thread};
+    use serde::Serialize;
 
     /********************
      * STATIC VARIABLES *
@@ -60,6 +61,13 @@ pub(crate) mod e2l_module {
         fwinfo: Arc<Mutex<ForwardInfo>>,
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
     }
+
+    #[derive(Serialize)]
+    struct CombinedMessage<'a> {
+        packet: &'a RxpkContentLb,
+        gw_stats: &'a GwStats,
+    }
+
     // STATIC FUNCTION
     impl E2LModule {
         fn debug(msg: String) {
@@ -101,7 +109,7 @@ pub(crate) mod e2l_module {
                 },
             }
         }
-        fn get_data_from_json(from_upstream: &[u8]) -> Rxpk {
+        fn get_data_from_json(from_upstream: &[u8]) -> (Rxpk/*Vec<RxpkContentLb>*/) {
             // Some JSON input data as a &str. Maybe this comes from the user.
             let data_string = str::from_utf8(from_upstream).unwrap();
             Self::debug(format!("{}", data_string));
@@ -162,21 +170,15 @@ pub(crate) mod e2l_module {
                     s.refresh_cpu(); // Refreshing CPU information.
                     let used_cpu = s.global_cpu_info().cpu_usage();
                     Self::debug(format!("{}%", used_cpu));
+
                     let gw_stats_obj = GwStats {
                         gw_id: hostname.clone(),
-                        frame: FrameCounters {
-                            rx_frames: counters.rx_frames,
-                            tx_frames: counters.tx_frames,
-                            fw_frames: counters.fw_frames,
-                            tx_ho_frames: counters.tx_ho_frames,
-                            rx_ho_frames: counters.rx_ho_frames,
-                            proc_frames: counters.proc_frames,
-                        },
+                        rx_frames: counters.rx_frames,
+                        tx_frames: counters.tx_frames,
+                        fw_frames: counters.fw_frames,
+                        proc_frames: counters.proc_frames,
                         mem_usage: used_memory as f32 / available_memory as f32,
-                        mem_usage_percentage: (used_memory as f32 / available_memory as f32)*100.0,
-                        mem_available: available_memory,
                         cpu_usage: used_cpu,
-                        cpu_usage_percentage: used_cpu*100.0,
                     };
                     //lock the thread and make clone out of gw_stats_obj
                     let mut lock = shared_clone.lock().unwrap();
@@ -317,6 +319,17 @@ pub(crate) mod e2l_module {
                 return None;
             }
             return Some(will_send);
+        }
+        
+        
+        async fn load_balancer_interface(&self, packet: &RxpkContentLb, gw_stats: &GwStats) {
+           let message = CombinedMessage {
+                packet: &packet,
+                gw_stats: &gw_stats,
+            };
+
+            let lb_json = serde_json::to_string(&message).unwrap();
+            println!("Combined JSON: {}", lb_json);
         }
     }
 
@@ -622,6 +635,9 @@ pub(crate) mod e2l_module {
                                     Self::debug(format!("Extracted GwMac {:x?}", gwmac));
                                     
                                     let parsed_data = parse(data.clone());
+                                    /*test */    
+                                    //the packet should be based on the LB RxpkContent                 
+                                    //self.load_balancer_interface(&packet,&gw_stats).await;
     
                                     match parsed_data {
                                         Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
