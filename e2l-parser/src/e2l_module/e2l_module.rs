@@ -1,22 +1,23 @@
 pub(crate) mod e2l_module {
-    use crate::e2l_crypto::e2l_crypto::e2l_crypto::FRAME_COUNTERS;
-    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo};
-    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables};
-    use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent, RxpkContentLb};
+    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo, FRAME_COUNTERS};
+    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables, FrameCounters};
+    use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
     use crate::lorawan_structs::lorawan_structs::ForwardProtocols;
     use crate::{
         e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto,
         json_structs::filters_json_structs::filter_json::EnvVariables,
         lorawan_structs::lorawan_structs::ForwardInfo,
     };
+    use crate::e2l_end_device::e2l_end_device::e2l_end_device::{DeviceStats, DevicePks};
+    use futures::io::Window;
     use gethostname::gethostname;
     use lorawan_encoding::default_crypto::DefaultFactory;
     use lorawan_encoding::parser::{
         parse, AsPhyPayloadBytes, DataHeader, DataPayload, EncryptedDataPayload, PhyPayload,
     };
     use rand::Rng;
-    use std::collections::HashMap;
-    use std::time::Duration;
+    use std::collections::HashMap;  
+    use std::time::{Duration, Instant};
     use sysinfo::{CpuExt, System, SystemExt};
     // use std::io::Read;
     use std::str;
@@ -29,7 +30,6 @@ pub(crate) mod e2l_module {
     // RPC
 
     use std::{net::UdpSocket, sync::mpsc::channel, thread};
-    use serde::Serialize;
 
     /********************
      * STATIC VARIABLES *
@@ -61,13 +61,6 @@ pub(crate) mod e2l_module {
         fwinfo: Arc<Mutex<ForwardInfo>>,
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
     }
-
-    #[derive(Serialize)]
-    struct CombinedMessage<'a> {
-        packet: &'a RxpkContentLb,
-        gw_stats: &'a GwStats,
-    }
-
     // STATIC FUNCTION
     impl E2LModule {
         fn debug(msg: String) {
@@ -109,7 +102,7 @@ pub(crate) mod e2l_module {
                 },
             }
         }
-        fn get_data_from_json(from_upstream: &[u8]) -> (Rxpk/*Vec<RxpkContentLb>*/) {
+        fn get_data_from_json(from_upstream: &[u8]) -> Rxpk {
             // Some JSON input data as a &str. Maybe this comes from the user.
             let data_string = str::from_utf8(from_upstream).unwrap();
             Self::debug(format!("{}", data_string));
@@ -173,12 +166,19 @@ pub(crate) mod e2l_module {
 
                     let gw_stats_obj = GwStats {
                         gw_id: hostname.clone(),
-                        rx_frames: counters.rx_frames,
-                        tx_frames: counters.tx_frames,
-                        fw_frames: counters.fw_frames,
-                        proc_frames: counters.proc_frames,
+                        frame: FrameCounters {
+                            rx_frames: counters.rx_frames,
+                            tx_frames: counters.tx_frames,
+                            fw_frames: counters.fw_frames,
+                            tx_ho_frames: counters.tx_ho_frames,
+                            rx_ho_frames: counters.rx_ho_frames,
+                            proc_frames: counters.proc_frames,
+                        },
                         mem_usage: used_memory as f32 / available_memory as f32,
+                        mem_usage_percentage: (used_memory as f32 / available_memory as f32)*100.0,
+                        mem_available: available_memory,
                         cpu_usage: used_cpu,
+                        cpu_usage_percentage: used_cpu*100.0,
                     };
                     //lock the thread and make clone out of gw_stats_obj
                     let mut lock = shared_clone.lock().unwrap();
@@ -204,7 +204,62 @@ pub(crate) mod e2l_module {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }
+        async fn collect_packets_for_devices(&self,all_packets: Vec<RxpkContent>) -> HashMap<String, DevicePks> {
+            let window_duration = Duration::from_secs(60);
+            let current_time = SystemTime::now();
 
+            let mut device_map: HashMap<String, DevicePks> = HashMap::new();
+
+            for (rxpk) in all_packets {
+                // Check if the packet is within the time window
+                if let Ok(elapsed) = current_time.elapsed() {
+                    if elapsed <= window_duration {
+                        let dev_eui = hex::encode(&rxpk.data[0..8]);
+                        let dev_addr = hex::encode(&rxpk.data[8..12]);
+                        let device_key = dev_addr.clone();
+
+                        device_map
+                            .entry(device_key.clone())
+                            .and_modify(|device| {
+                                device.rxpk.push(rxpk.clone());
+                            })
+                            .or_insert(DevicePks {
+                                dev_eui,
+                                dev_addr,
+                                rxpk: vec![rxpk.clone()],
+                            });
+                    }
+                }
+            }
+
+            device_map
+        }
+        async fn calculate_device_stats(&self,device_map: HashMap<String, DevicePks>) -> Vec<DeviceStats> {
+            let mut stats_list = Vec::new();
+
+            for (_dev_addr, device) in device_map.into_iter() {
+                // Use the new methods
+                let avg_rssi = match device.avg_rssi() {
+                    Some(val) => val,
+                    None => continue,
+                };
+
+                let avg_snr = device.avg_snr().unwrap_or(0.0);
+                let avg_payload_size = device.avg_payload_size().unwrap_or(0.0);
+
+                let stats = DeviceStats {
+                    dev_eui: device.dev_eui,
+                    dev_addr: device.dev_addr,
+                    avg_rssi,
+                    avg_snr,
+                    avg_payload_size,
+                };
+
+                stats_list.push(stats);
+            }
+
+            stats_list
+        }
         async fn handle_data_payload(
             &self,
             phy: EncryptedDataPayload<Vec<u8>, DefaultFactory>,
@@ -305,7 +360,7 @@ pub(crate) mod e2l_module {
                                         "Forwarding to NS: {:x?}",
                                         fwinfo.forward_host.clone()
                                     ));
-                                    counters.rx_frames += 1;
+                                    counters.tx_frames += 1;
                                 } // _ => panic!("Forwarding protocol not implemented!"),
                             }
 
@@ -319,18 +374,7 @@ pub(crate) mod e2l_module {
                 return None;
             }
             return Some(will_send);
-        }
-        
-        
-        async fn load_balancer_interface(&self, packet: &RxpkContentLb, gw_stats: &GwStats) {
-           let message = CombinedMessage {
-                packet: &packet,
-                gw_stats: &gw_stats,
-            };
-
-            let lb_json = serde_json::to_string(&message).unwrap();
-            println!("Combined JSON: {}", lb_json);
-        }
+        } 
     }
 
     // PUBLIC FUNCTIONS
@@ -498,6 +542,9 @@ pub(crate) mod e2l_module {
 
             let gw_stats:GwStats=self.start_gw_stats_thread().await;
 
+            
+            
+
             /*************
              * MAIN LOOP *
              *************/
@@ -517,9 +564,8 @@ pub(crate) mod e2l_module {
                 //we create a new thread for each unique client
                 let mut remove_existing = false;
                 loop {
-                    println!("I am here...........,too!");
-                    Self::debug(format!("Received packet from client {}", src_addr));
-
+                    Self::debug(format!("Received packet from client {}", src_addr)); 
+                    //TODO add number of rx_frame
                     let mut ignore_failure = true;
                     let client_id = format!("{}", src_addr);
 
@@ -615,6 +661,7 @@ pub(crate) mod e2l_module {
                                 "Evaluate if forwarding packet from client {:?} to upstream server",
                                 data_json.rxpk
                             ));
+                            let mut packets: Vec<RxpkContent> = Vec::new();
                             if data_json.rxpk.len() == 0 {
                                 let fwinfo = self.fwinfo.lock().expect("Could not lock!");
                                 match fwinfo.forward_protocol {
@@ -635,10 +682,13 @@ pub(crate) mod e2l_module {
                                     Self::debug(format!("Extracted GwMac {:x?}", gwmac));
                                     
                                     let parsed_data = parse(data.clone());
-                                    /*test */    
-                                    //the packet should be based on the LB RxpkContent                 
-                                    //self.load_balancer_interface(&packet,&gw_stats).await;
-    
+                                    if data.len() < 26 {
+                                        panic!("Invalid data length");
+                                    }
+                                    let packet_copy = packet.clone();
+                                    //just collected packets without time consideration
+                                    packets.push(packet_copy);
+                                    //pippo
                                     match parsed_data {
                                         Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
                                             let will_send_option = self
@@ -682,6 +732,8 @@ pub(crate) mod e2l_module {
                                     }
                                 }
                             }
+                        let device_map = self.collect_packets_for_devices(packets).await; 
+                        self.calculate_device_stats(device_map).await; 
                         }
                         _ => (),
                     }

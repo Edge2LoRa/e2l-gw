@@ -9,7 +9,7 @@ pub(crate) mod lora_structs {
         RxpkCK(RxpkContentKerlink),
     }
 
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct RxpkContent {
         pub time: Option<String>,
         pub tmst: u32,

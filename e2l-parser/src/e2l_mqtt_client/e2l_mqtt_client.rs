@@ -9,22 +9,24 @@ pub(crate) mod e2l_mqtt_client {
     use std::sync::{Arc, Mutex};
 
     use crate::e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto;
-    //use crate::e2l_crypto::e2l_crypto::e2l_crypto::FRAME_COUNTERS;
+    use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
+    use crate::e2l_end_device::e2l_end_device::e2l_end_device::{DeviceStats};
     use paho_mqtt as mqtt;
     use reqwest::Client;
     use std::time::Duration;
+    use std::collections::HashMap;
     
     // One Global variable will be used by multiple threads
     use once_cell::sync::Lazy;
 
     #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct FrameCounters {
-        pub rx_frames: u32,
-        pub tx_frames: u32,
-        pub fw_frames: u32,
-        pub tx_ho_frames: u32,
-        pub rx_ho_frames: u32,
-        pub proc_frames: u32,
+        pub rx_frames: u32,//The number of LoRaWAN frames that has received by the gateway from the end-device(Uplink messages)
+        pub tx_frames: u32,//The number of LoRaWAN frames that are transmited by the gateway to the end-device(Downlink messages)
+        pub fw_frames: u32,//--> The number of LoRaWAN frames transmitted by the GW to the Network Server using the standard LoRaWAN Specification during the reporting period.
+        pub tx_ho_frames: u32,//--> The number of frames the GW forwarded to other GWs using the handover procedure during the reporting period.
+        pub rx_ho_frames: u32,//--> The number of frames  received by the GW by the other GWs using the handover procedure
+        pub proc_frames: u32,//--> The number of frames the GW locally processed, i.e. the number of frames the Parser Module published to the process topic.
     }
     impl Default for FrameCounters {
         fn default() -> Self {
@@ -104,6 +106,10 @@ pub(crate) mod e2l_mqtt_client {
         pub mem_available: u64,
         pub cpu_usage: f32,
         pub cpu_usage_percentage:f32,
+    }
+    pub struct Stats{
+        gw_stats: GwStats,
+        devices_stats: HashMap<String, DeviceStats>
     }
 
     #[derive(Debug, Serialize, Deserialize)]

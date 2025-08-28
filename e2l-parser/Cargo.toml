@@ -12,7 +12,7 @@ categories = ["network-programming", "edge-computing", "lorawan", "edge2lora"]
 license = "MIT"
 
 [dependencies]
-lorawan = "0.8"
+lorawan = "0.9"
 rand = "0.3"
 lazy_static = "1.4.0"
 serde_json = "1.0.78"
