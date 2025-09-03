@@ -106,6 +106,7 @@ pub(crate) mod e2l_mqtt_client {
         pub mem_available: u64,
         pub cpu_usage: f32,
         pub cpu_usage_percentage:f32,
+        pub swp_usage_percentage:f32,
     }
     pub struct Stats{
         gw_stats: GwStats,

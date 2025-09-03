@@ -1,3 +1,11 @@
+/// This module defines LoRaWAN uplink-related data structures for parsing and handling
+/// messages received from gateways in formats such as Semtech UDP.
+///
+/// Includes:
+/// - `RxpkContent`: The core uplink payload metadata
+/// - `UplinkSettings`: Parsed internal frequency, coding rate, and data rate
+/// - `LoRaDataRate`: Bandwidth and spreading factor
+/// - `RxPks`: Enum wrapper for different types of packets
 pub(crate) mod lora_structs {
     use serde_derive::Deserialize;
     use serde_derive::Serialize;
@@ -8,7 +16,6 @@ pub(crate) mod lora_structs {
         RxpkC(RxpkContent),
         RxpkCK(RxpkContentKerlink),
     }
-
     #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct RxpkContent {
         pub time: Option<String>,
@@ -24,7 +31,8 @@ pub(crate) mod lora_structs {
         pub size: u32,
         pub data: String,
     }
-
+  
+    
     /*
     rxpk":[{"aesk":0,"brd":2,"codr":"4/5","data":"QLgAFgCATNkGLGbX832w","datr":"SF7BW125","freq":867.5,"jver":2,"modu":"LORA",],"size":15,"stat":1,"time":"2022-05-27T09:41:21.091993Z","tmst":3593099307}]}
     Rxpk not present in JSON: Error("missing field `chan`", line: 1, column: 507)

@@ -9,7 +9,6 @@ pub(crate) mod e2l_module {
         lorawan_structs::lorawan_structs::ForwardInfo,
     };
     use crate::e2l_end_device::e2l_end_device::e2l_end_device::{DeviceStats, DevicePks};
-    use futures::io::Window;
     use gethostname::gethostname;
     use lorawan_encoding::default_crypto::DefaultFactory;
     use lorawan_encoding::parser::{
@@ -141,6 +140,8 @@ pub(crate) mod e2l_module {
             std::mem::drop(hostname_mut);
             let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
 
+           
+
             thread::spawn(move || {
                 let mut s: System = System::new_all();
                 Self::info(format!("System counter stats thread started!"));
@@ -157,6 +158,8 @@ pub(crate) mod e2l_module {
                     s.refresh_memory();
                     let used_memory = s.used_memory();
                     let available_memory = s.available_memory();
+                    let used_swap=s.swap_used();
+                    let used_mem =s.mem_usage();
                     Self::debug(format!("{} bytes", used_memory));
                     Self::debug(format!("{} bytes", available_memory));
 
@@ -174,11 +177,12 @@ pub(crate) mod e2l_module {
                             rx_ho_frames: counters.rx_ho_frames,
                             proc_frames: counters.proc_frames,
                         },
-                        mem_usage: used_memory as f32 / available_memory as f32,
-                        mem_usage_percentage: (used_memory as f32 / available_memory as f32)*100.0,
+                        mem_usage: used_mem,
+                        mem_usage_percentage: used_mem*100.0,
                         mem_available: available_memory,
                         cpu_usage: used_cpu,
                         cpu_usage_percentage: used_cpu*100.0,
+                        swp_usage_percentage: used_swap*100.0,
                     };
                     //lock the thread and make clone out of gw_stats_obj
                     let mut lock = shared_clone.lock().unwrap();
@@ -205,15 +209,15 @@ pub(crate) mod e2l_module {
             }
         }
         async fn collect_packets_for_devices(&self,all_packets: Vec<RxpkContent>) -> HashMap<String, DevicePks> {
-            let window_duration = Duration::from_secs(60);
-            let current_time = SystemTime::now();
+            //let window_duration = Duration::from_secs(60);
+            //let current_time = SystemTime::now();
 
             let mut device_map: HashMap<String, DevicePks> = HashMap::new();
 
-            for (rxpk) in all_packets {
+            for rxpk in all_packets {
                 // Check if the packet is within the time window
-                if let Ok(elapsed) = current_time.elapsed() {
-                    if elapsed <= window_duration {
+                // if let Ok(elapsed) = current_time.elapsed() {
+                //     if elapsed <= window_duration {
                         let dev_eui = hex::encode(&rxpk.data[0..8]);
                         let dev_addr = hex::encode(&rxpk.data[8..12]);
                         let device_key = dev_addr.clone();
@@ -228,11 +232,23 @@ pub(crate) mod e2l_module {
                                 dev_addr,
                                 rxpk: vec![rxpk.clone()],
                             });
-                    }
-                }
+                //     }
+                // }
             }
 
             device_map
+        }
+        async  fn parse_datr(datr: &str) -> Option<(u8, u32)> {
+             // Strip "SF" and split by "BW"
+            if let Some(datr) = datr.strip_prefix("SF") {
+                let parts: Vec<&str> = datr.split("BW").collect();
+                if parts.len() == 2 {
+                    let sf = parts[0].parse::<u8>().ok()?;
+                    let bw = parts[1].parse::<u32>().ok()? * 1000; // Convert kHz to Hz
+                    return Some((sf, bw));
+                }
+            }
+            None
         }
         async fn calculate_device_stats(&self,device_map: HashMap<String, DevicePks>) -> Vec<DeviceStats> {
             let mut stats_list = Vec::new();
@@ -686,8 +702,12 @@ pub(crate) mod e2l_module {
                                         panic!("Invalid data length");
                                     }
                                     let packet_copy = packet.clone();
-                                    //just collected packets without time consideration
-                                    packets.push(packet_copy);
+                                    //Collect each 20 packets and do the calculation
+                                    if packets.len() < 21{
+                                       packets.push(packet_copy);
+                                    }else {
+                                       break;
+                                    }
                                     //pippo
                                     match parsed_data {
                                         Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {

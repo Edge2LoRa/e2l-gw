@@ -40,6 +40,8 @@ pub(crate) mod e2l_crypto {
     use crate::e2l_active_directory::e2l_active_directory::e2l_active_directory::{
         AssociatedDevInfo, E2LActiveDirectory, UnassociatedDevInfo,
     };
+    
+
 
     pub struct E2LCrypto {
         pub gw_id: String,
@@ -444,7 +446,7 @@ pub(crate) mod e2l_crypto {
                 rssi: payload.rssi,
                 lsnr: payload.lsnr,
                 size: payload.size,
-                data: payload.data,
+                data: payload.data
             };
 
             let data: Vec<u8> = general_purpose::STANDARD.decode(&packet.data).unwrap();
