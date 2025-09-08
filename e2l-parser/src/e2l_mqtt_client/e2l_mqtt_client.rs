@@ -104,6 +104,8 @@ pub(crate) mod e2l_mqtt_client {
         pub mem_usage: f32,
         pub mem_usage_percentage: f32,
         pub mem_available: u64,
+        pub ntwk_down:i32,
+        pub ntwk_up:i32,
         pub cpu_usage: f32,
         pub cpu_usage_percentage:f32,
         pub swp_usage_percentage:f32,

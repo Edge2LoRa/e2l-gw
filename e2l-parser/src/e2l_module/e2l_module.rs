@@ -17,7 +17,7 @@ pub(crate) mod e2l_module {
     use rand::Rng;
     use std::collections::HashMap;  
     use std::time::{Duration, Instant};
-    use sysinfo::{CpuExt, System, SystemExt};
+    use sysinfo::{CpuExt, NetworkExt, Networks, NetworksExt, System, SystemExt};
     // use std::io::Read;
     use std::str;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -144,6 +144,7 @@ pub(crate) mod e2l_module {
 
             thread::spawn(move || {
                 let mut s: System = System::new_all();
+        
                 Self::info(format!("System counter stats thread started!"));
 
                 let mqtt_client = E2LMqttClient::new(
@@ -156,13 +157,19 @@ pub(crate) mod e2l_module {
 
                 loop {
                     s.refresh_memory();
+                    // Get the total network usage
+                    s.refresh_networks(); 
+                    let networks = s.networks();
+                    let ntwk_down=networks.get_ntwk_dwn();
+                    let ntwk_up= networks.get_ntwk_up();
+                    // Get memory & Swap usage
                     let used_memory = s.used_memory();
                     let available_memory = s.available_memory();
                     let used_swap=s.swap_used();
                     let used_mem =s.mem_usage();
                     Self::debug(format!("{} bytes", used_memory));
                     Self::debug(format!("{} bytes", available_memory));
-
+                    // Get Cpu usage
                     s.refresh_cpu(); // Refreshing CPU information.
                     let used_cpu = s.global_cpu_info().cpu_usage();
                     Self::debug(format!("{}%", used_cpu));
@@ -180,6 +187,8 @@ pub(crate) mod e2l_module {
                         mem_usage: used_mem,
                         mem_usage_percentage: used_mem*100.0,
                         mem_available: available_memory,
+                        ntwk_down: ntwk_down,
+                        ntwk_up: ntwk_up,
                         cpu_usage: used_cpu,
                         cpu_usage_percentage: used_cpu*100.0,
                         swp_usage_percentage: used_swap*100.0,
