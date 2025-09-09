@@ -439,6 +439,7 @@ pub(crate) mod e2l_mqtt_client {
                             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
                             let ret = e2l_crypto
                                 .handover_callback(topic.to_string(), msg_str.to_string());
+                            //tx_ho increase
                             std::mem::drop(e2l_crypto);
                             match ret {
                                 Some(payload) => self.publish_to_process(payload).await,

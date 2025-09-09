@@ -231,6 +231,8 @@ pub(crate) mod e2l_module {
                         let dev_addr = hex::encode(&rxpk.data[8..12]);
                         let device_key = dev_addr.clone();
 
+                        //If the device already exists in the map, add this new packet to its list. 
+                        //If it doesn't exist, insert a new device with the packet as its first entry.
                         device_map
                             .entry(device_key.clone())
                             .and_modify(|device| {
@@ -246,18 +248,6 @@ pub(crate) mod e2l_module {
             }
 
             device_map
-        }
-        async  fn parse_datr(datr: &str) -> Option<(u8, u32)> {
-             // Strip "SF" and split by "BW"
-            if let Some(datr) = datr.strip_prefix("SF") {
-                let parts: Vec<&str> = datr.split("BW").collect();
-                if parts.len() == 2 {
-                    let sf = parts[0].parse::<u8>().ok()?;
-                    let bw = parts[1].parse::<u32>().ok()? * 1000; // Convert kHz to Hz
-                    return Some((sf, bw));
-                }
-            }
-            None
         }
         async fn calculate_device_stats(&self,device_map: HashMap<String, DevicePks>) -> Vec<DeviceStats> {
             let mut stats_list = Vec::new();
@@ -310,8 +300,8 @@ pub(crate) mod e2l_module {
             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
             is_active = e2l_crypto.is_active();
             std::mem::drop(e2l_crypto);
-            let mut counters = FRAME_COUNTERS.lock().unwrap();
             if is_active {
+                let mut counters = FRAME_COUNTERS.lock().unwrap();
                 // UPDATE RX_FRAMES COUNTER
                 counters.rx_frames += 1;
                 // get epoch time
@@ -380,6 +370,7 @@ pub(crate) mod e2l_module {
                         port if port == DEFAULT_APP_PORT => {
                             let fwinfo = self.fwinfo.lock().expect("Could not lock!");
                             match fwinfo.forward_protocol {
+                                //fw_frames increase
                                 ForwardProtocols::UDP => {
                                     Self::debug(format!(
                                         "Forwarding to NS: {:x?}",
@@ -553,6 +544,7 @@ pub(crate) mod e2l_module {
                 ));
                 loop {
                     let (dest, buf) = main_receiver.recv().unwrap();
+                    //tx_frame increase
                     let to_send = buf.as_slice();
                     responder.send_to(to_send, dest).expect(&format!(
                         "Failed to forward response from upstream server to client {}",
@@ -590,7 +582,7 @@ pub(crate) mod e2l_module {
                 let mut remove_existing = false;
                 loop {
                     Self::debug(format!("Received packet from client {}", src_addr)); 
-                    //TODO add number of rx_frame
+                    //rx_frame increase
                     let mut ignore_failure = true;
                     let client_id = format!("{}", src_addr);
 
@@ -739,15 +731,16 @@ pub(crate) mod e2l_module {
                                             }
                                         }
                                         Ok(PhyPayload::JoinRequest(phy)) => {
+                                            //rx_frame increase
                                             let fwinfo =
                                                 self.fwinfo.lock().expect("Could not lock!");
                                             match fwinfo.forward_protocol {
                                                 ForwardProtocols::UDP => {
-                                                    Self::debug(format!(
-                                                "Forwarding to {:x?}  JoinRequest with len {}",
-                                                fwinfo.forward_host.clone(),
-                                                phy.as_bytes().len()
-                                            ));
+                                                        Self::debug(format!(
+                                                        "Forwarding to {:x?}  JoinRequest with len {}",
+                                                        fwinfo.forward_host.clone(),
+                                                        phy.as_bytes().len()
+                                                    ));
                                                 } // _ => panic!("Forwarding protocol not implemented!"),
                                             }
                                             std::mem::drop(fwinfo);
@@ -772,6 +765,7 @@ pub(crate) mod e2l_module {
                             Ok(_) => {
                                 Self::debug(format!(
                                     "Forwarding {} ({}) to upstream server",
+                                    //fw_frame increase
                                     PACKETNAMES[&to_send[3]], &to_send[3]
                                 ));
 

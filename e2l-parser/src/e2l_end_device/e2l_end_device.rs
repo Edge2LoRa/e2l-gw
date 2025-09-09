@@ -54,18 +54,18 @@ pub(crate) mod e2l_end_device{
             Some(total / count as f64)
         }
         // The influence of ADR for evaluating the link quality
-        pub fn parse_datr(datr: &str) -> Option<(u8, u32)> {
-            // Strip "SF" and split by "BW"
-            if let Some(datr) = datr.strip_prefix("SF") {
-                let parts: Vec<&str> = datr.split("BW").collect();
-                if parts.len() == 2 {
-                    let sf = parts[0].parse::<u8>().ok()?;
-                    let bw = parts[1].parse::<u32>().ok()? * 1000; // Convert kHz to Hz
-                    return Some((sf, bw));
-                }
-            }
-            None
-        }
+        // pub fn parse_datr(datr: &str) -> Option<(u8, u32)> {
+        //     // Strip "SF" and split by "BW"
+        //     if let Some(datr) = datr.strip_prefix("SF") {
+        //         let parts: Vec<&str> = datr.split("BW").collect();
+        //         if parts.len() == 2 {
+        //             let sf = parts[0].parse::<u8>().ok()?;
+        //             let bw = parts[1].parse::<u32>().ok()? * 1000; // Convert kHz to Hz
+        //             return Some((sf, bw));
+        //         }
+        //     }
+        //     None
+        // }
     }
 
 }
