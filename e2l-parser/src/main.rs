@@ -7,8 +7,8 @@ mod json_structs;
 mod lorawan_structs;
 mod e2l_end_device;
 
-#[macro_use]
-extern crate lazy_static;
+// #[macro_use]
+// extern crate lazy_static;
 
 use e2l_module::e2l_module::e2l_module::E2LModule;
 

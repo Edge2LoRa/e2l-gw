@@ -178,7 +178,6 @@ pub(crate) mod e2l_module {
                         gw_id: hostname.clone(),
                         frame: FrameCounters {
                             rx_frames: counters.rx_frames,
-                            tx_frames: counters.tx_frames,
                             fw_frames: counters.fw_frames,
                             tx_ho_frames: counters.tx_ho_frames,
                             rx_ho_frames: counters.rx_ho_frames,
@@ -301,9 +300,6 @@ pub(crate) mod e2l_module {
             is_active = e2l_crypto.is_active();
             std::mem::drop(e2l_crypto);
             if is_active {
-                let mut counters = FRAME_COUNTERS.lock().unwrap();
-                // UPDATE RX_FRAMES COUNTER
-                counters.rx_frames += 1;
                 // get epoch time
                 let start = SystemTime::now();
                 let _timetag = start
@@ -315,8 +311,8 @@ pub(crate) mod e2l_module {
                 let e2ed_enabled: bool = (f_port == DEFAULT_E2L_APP_PORT)
                     && e2l_crypto.check_e2ed_enabled(dev_addr_string.clone());
                 std::mem::drop(e2l_crypto);
-
                 if e2ed_enabled {
+                    let mut counters = FRAME_COUNTERS.lock().unwrap();
                     let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
                     let mqtt_payload_option = e2l_crypto.get_json_mqtt_payload(
                         dev_addr_string.clone(),
@@ -327,6 +323,10 @@ pub(crate) mod e2l_module {
                         None,
                     );
                     std::mem::drop(e2l_crypto);
+                    ///////////////////////////////////////////////////////////////////////
+                    // Processing for a device that is already enabled in E2L mode
+                    // Increase frame for processing
+                    ///////////////////////////////////////////////////////////////////////
                     match mqtt_payload_option {
                         Some(mqtt_payload) => {
                             counters.proc_frames += 1;
@@ -343,6 +343,10 @@ pub(crate) mod e2l_module {
                     }
                     will_send = false;
                 } else {
+                    //////////////////////////////////////////////////////////////////////
+                    // If the end-device is not enabled then we have to check the port
+                    /////////////////////////////////////////////////////////////////////
+                    let mut counters = FRAME_COUNTERS.lock().unwrap();
                     match f_port {
                         port if port == DEFAULT_E2L_APP_PORT => {
                             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
@@ -354,14 +358,15 @@ pub(crate) mod e2l_module {
                                     gwmac,
                                 );
                             std::mem::drop(e2l_crypto);
-
+                            
                             match mqtt_payload_option {
                                 Some(mqtt_payload) => {
-                                    counters.fw_frames += 1;
+                                    
                                     let gw_id = mqtt_payload.gw_id.clone();
                                     let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                         .unwrap_or_else(|_| "Error".to_string());
                                     mqtt_client.publish_to_handover(gw_id, mqtt_payload_str);
+                                    counters.tx_ho_frames += 1;
                                     will_send = false;
                                 }
                                 None => {}
@@ -370,13 +375,12 @@ pub(crate) mod e2l_module {
                         port if port == DEFAULT_APP_PORT => {
                             let fwinfo = self.fwinfo.lock().expect("Could not lock!");
                             match fwinfo.forward_protocol {
-                                //fw_frames increase
                                 ForwardProtocols::UDP => {
                                     Self::debug(format!(
                                         "Forwarding to NS: {:x?}",
                                         fwinfo.forward_host.clone()
                                     ));
-                                    counters.tx_frames += 1;
+                                    counters.fw_frames += 1;
                                 } // _ => panic!("Forwarding protocol not implemented!"),
                             }
 
@@ -712,6 +716,8 @@ pub(crate) mod e2l_module {
                                     //pippo
                                     match parsed_data {
                                         Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
+                                            let mut counters = FRAME_COUNTERS.lock().unwrap();
+                                            counters.rx_frames += 1;
                                             let will_send_option = self
                                                 .handle_data_payload(
                                                     phy,
@@ -731,7 +737,6 @@ pub(crate) mod e2l_module {
                                             }
                                         }
                                         Ok(PhyPayload::JoinRequest(phy)) => {
-                                            //rx_frame increase
                                             let fwinfo =
                                                 self.fwinfo.lock().expect("Could not lock!");
                                             match fwinfo.forward_protocol {

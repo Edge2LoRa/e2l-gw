@@ -22,7 +22,6 @@ pub(crate) mod e2l_mqtt_client {
     #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct FrameCounters {
         pub rx_frames: u32,//The number of LoRaWAN frames that has received by the gateway from the end-device(Uplink messages)
-        pub tx_frames: u32,//The number of LoRaWAN frames that are transmited by the gateway to the end-device(Downlink messages)
         pub fw_frames: u32,//--> The number of LoRaWAN frames transmitted by the GW to the Network Server using the standard LoRaWAN Specification during the reporting period.
         pub tx_ho_frames: u32,//--> The number of frames the GW forwarded to other GWs using the handover procedure during the reporting period.
         pub rx_ho_frames: u32,//--> The number of frames  received by the GW by the other GWs using the handover procedure
@@ -32,7 +31,6 @@ pub(crate) mod e2l_mqtt_client {
         fn default() -> Self {
             FrameCounters {
                 rx_frames: 0,
-                tx_frames: 0,
                 fw_frames: 0,
                 tx_ho_frames: 0,
                 rx_ho_frames: 0,
@@ -439,10 +437,15 @@ pub(crate) mod e2l_mqtt_client {
                             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
                             let ret = e2l_crypto
                                 .handover_callback(topic.to_string(), msg_str.to_string());
-                            //tx_ho increase
                             std::mem::drop(e2l_crypto);
+                            let mut counters = FRAME_COUNTERS.lock().unwrap();
+                            counters.rx_ho_frames += 1;
                             match ret {
-                                Some(payload) => self.publish_to_process(payload).await,
+
+                                Some(payload) => {
+                                    counters.proc_frames +=1;
+                                    self.publish_to_process(payload).await;
+                                },
                                 None => (),
                             }
                         }
@@ -622,7 +625,6 @@ pub(crate) mod e2l_mqtt_client {
                                 }
                                 "aggregation_completed" => {
                                     println!("INFO: Command 'aggregation_completed' received");
-                                    counters.rx_frames += 1;
                                 }
                                 _ => {
                                     println!("INFO: Unknown command received");
