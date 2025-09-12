@@ -438,11 +438,10 @@ pub(crate) mod e2l_mqtt_client {
                             let ret = e2l_crypto
                                 .handover_callback(topic.to_string(), msg_str.to_string());
                             std::mem::drop(e2l_crypto);
-                            let mut counters = FRAME_COUNTERS.lock().unwrap();
-                            counters.rx_ho_frames += 1;
                             match ret {
-
                                 Some(payload) => {
+                                    let mut counters = FRAME_COUNTERS.lock().unwrap();
+                                    counters.rx_ho_frames += 1;
                                     counters.proc_frames +=1;
                                     self.publish_to_process(payload).await;
                                 },
