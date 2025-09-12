@@ -8,9 +8,9 @@ pub(crate) mod e2l_mqtt_client {
     use std::env;
     use std::sync::{Arc, Mutex};
 
-    use crate::e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto;
-    use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
-    use crate::e2l_end_device::e2l_end_device::e2l_end_device::{DeviceStats};
+    use crate::e2l_crypto::e2l_crypto::E2LCrypto;
+    // use crate::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
+    use crate::e2l_end_device::e2l_end_device::{DeviceStats};
     use paho_mqtt as mqtt;
     use reqwest::Client;
     use std::time::Duration;
@@ -99,14 +99,14 @@ pub(crate) mod e2l_mqtt_client {
     pub struct GwStats {
         pub gw_id: String,
         pub frame: FrameCounters,
-        pub mem_usage: f32,
-        pub mem_usage_percentage: f32,
+        // pub mem_usage: f32,
+        // pub mem_usage_percentage: f32,
         pub mem_available: u64,
-        pub ntwk_down:i32,
-        pub ntwk_up:i32,
+        // pub ntwk_down:i32,
+        // pub ntwk_up:i32,
         pub cpu_usage: f32,
         pub cpu_usage_percentage:f32,
-        pub swp_usage_percentage:f32,
+        // pub swp_usage_percentage:f32,
     }
     pub struct Stats{
         gw_stats: GwStats,
@@ -482,7 +482,6 @@ pub(crate) mod e2l_mqtt_client {
                             let topic_parts: Vec<&str> = topic.split("/").collect();
                             // get last elem
                             let command = topic_parts[topic_parts.len() - 1];
-                            let mut counters = FRAME_COUNTERS.lock().unwrap();
                             match command {
                                 "add_assigned_devices" => {
                                     println!("INFO: Command 'add_assigned_devices' received");

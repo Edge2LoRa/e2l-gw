@@ -1,14 +1,14 @@
 pub(crate) mod e2l_module {
-    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo, FRAME_COUNTERS};
-    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables, FrameCounters};
-    use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
-    use crate::lorawan_structs::lorawan_structs::ForwardProtocols;
+    use crate::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo, FRAME_COUNTERS};
+    use crate::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables, FrameCounters};
+    use crate::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
+    use crate::lorawan_structs::ForwardProtocols;
     use crate::{
-        e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto,
-        json_structs::filters_json_structs::filter_json::EnvVariables,
-        lorawan_structs::lorawan_structs::ForwardInfo,
+        e2l_crypto::e2l_crypto::E2LCrypto,
+        filters_json_structs::filter_json::EnvVariables,
+        lorawan_structs::ForwardInfo,
     };
-    use crate::e2l_end_device::e2l_end_device::e2l_end_device::{DeviceStats, DevicePks};
+    use crate::e2l_end_device::e2l_end_device::{DeviceStats, DevicePks};
     use gethostname::gethostname;
     use lorawan_encoding::default_crypto::DefaultFactory;
     use lorawan_encoding::parser::{
@@ -16,8 +16,8 @@ pub(crate) mod e2l_module {
     };
     use rand::Rng;
     use std::collections::HashMap;  
-    use std::time::{Duration, Instant};
-    use sysinfo::{CpuExt, NetworkExt, Networks, NetworksExt, System, SystemExt};
+    use std::time::{Duration};
+    use sysinfo::{CpuExt, System, SystemExt};
     // use std::io::Read;
     use std::str;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -27,8 +27,10 @@ pub(crate) mod e2l_module {
     use base64::{engine::general_purpose, Engine as _};
 
     // RPC
-
+    use lazy_static::lazy_static;
     use std::{net::UdpSocket, sync::mpsc::channel, thread};
+
+    
 
     /********************
      * STATIC VARIABLES *
@@ -159,14 +161,14 @@ pub(crate) mod e2l_module {
                     s.refresh_memory();
                     // Get the total network usage
                     s.refresh_networks(); 
-                    let networks = s.networks();
-                    let ntwk_down=networks.get_ntwk_dwn();
-                    let ntwk_up= networks.get_ntwk_up();
+                    // let networks = s.networks();
+                    // let ntwk_down=networks.get_ntwk_dwn();
+                    // let ntwk_up= networks.get_ntwk_up();
                     // Get memory & Swap usage
                     let used_memory = s.used_memory();
                     let available_memory = s.available_memory();
-                    let used_swap=s.swap_used();
-                    let used_mem =s.mem_usage();
+                    // let used_swap=s.swap_used();
+                    // let used_mem =s.mem_usage();
                     Self::debug(format!("{} bytes", used_memory));
                     Self::debug(format!("{} bytes", available_memory));
                     // Get Cpu usage
@@ -183,14 +185,14 @@ pub(crate) mod e2l_module {
                             rx_ho_frames: counters.rx_ho_frames,
                             proc_frames: counters.proc_frames,
                         },
-                        mem_usage: used_mem,
-                        mem_usage_percentage: used_mem*100.0,
+                        // mem_usage: used_mem,
+                        // mem_usage_percentage: used_mem*100.0,
                         mem_available: available_memory,
-                        ntwk_down: ntwk_down,
-                        ntwk_up: ntwk_up,
+                        // ntwk_down: ntwk_down,
+                        // ntwk_up: ntwk_up,
                         cpu_usage: used_cpu,
                         cpu_usage_percentage: used_cpu*100.0,
-                        swp_usage_percentage: used_swap*100.0,
+                        // swp_usage_percentage: used_swap*100.0,
                     };
                     //lock the thread and make clone out of gw_stats_obj
                     let mut lock = shared_clone.lock().unwrap();
@@ -561,7 +563,7 @@ pub(crate) mod e2l_module {
              * GW STATS LOOP *
              ******************/
 
-            let gw_stats:GwStats=self.start_gw_stats_thread().await;
+            let _gw_stats:GwStats=self.start_gw_stats_thread().await;
 
             
             

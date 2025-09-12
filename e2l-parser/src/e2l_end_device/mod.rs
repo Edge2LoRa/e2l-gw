@@ -1,7 +1,7 @@
 pub(crate) mod e2l_end_device{
     use serde_derive::Deserialize;
     use serde_derive::Serialize;
-    use crate::lorawan_structs::lorawan_structs::lora_structs::RxpkContent;
+    use crate::lorawan_structs::lora_structs::RxpkContent;
 
     #[derive(Debug)]
     pub struct DevicePks{

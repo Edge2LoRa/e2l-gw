@@ -1,5 +1,5 @@
 [package]
-name = "e2l-parser"
+name = "e2l_parser"
 version = "1.0.0"
 edition = "2021"
 authors = ["s.milani", "d.garlisi"]
@@ -42,8 +42,7 @@ linker = "aarch64-linux-gcc"
 [package.metadata.cargo-machete]
 ignored = ["serde"]
 
-# `lto = true` should also work
-lto = "fat"
+
 
 
 

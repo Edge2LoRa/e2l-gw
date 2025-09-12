@@ -28,16 +28,16 @@ pub(crate) mod e2l_crypto {
     use sha2::Digest;
     use sha2::Sha256;
 
-    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{
+    use crate::e2l_mqtt_client::e2l_mqtt_client::{
         MqttJson, UnassociatedMqttJson,
     };
-    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{
+    use crate::e2l_mqtt_client::e2l_mqtt_client::{
         NewAssignedDevice, NewUnassociatedDevice,
     };
-    use crate::lorawan_structs::lorawan_structs::lora_structs::RxpkContent;
+    use crate::lorawan_structs::lora_structs::RxpkContent;
 
     // ACTIVE DIRECTORY
-    use crate::e2l_active_directory::e2l_active_directory::e2l_active_directory::{
+    use crate::e2l_active_directory::e2l_active_directory::{
         AssociatedDevInfo, E2LActiveDirectory, UnassociatedDevInfo,
     };
     
