@@ -1,4 +1,6 @@
+pub mod traits;
 pub(crate) mod e2l_module {
+    // use crate::e2l_module::traits;
     use crate::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo, FRAME_COUNTERS};
     use crate::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables, FrameCounters};
     use crate::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
@@ -30,7 +32,8 @@ pub(crate) mod e2l_module {
     use lazy_static::lazy_static;
     use std::{net::UdpSocket, sync::mpsc::channel, thread};
 
-    
+    //Network
+    use super::traits::NtwkStats;
 
     /********************
      * STATIC VARIABLES *
@@ -146,6 +149,7 @@ pub(crate) mod e2l_module {
 
             thread::spawn(move || {
                 let mut s: System = System::new_all();
+            
         
                 Self::info(format!("System counter stats thread started!"));
 
@@ -161,16 +165,11 @@ pub(crate) mod e2l_module {
                     s.refresh_memory();
                     // Get the total network usage
                     s.refresh_networks(); 
-                    // let networks = s.networks();
-                    // let ntwk_down=networks.get_ntwk_dwn();
-                    // let ntwk_up= networks.get_ntwk_up();
+                    let mut sys = System::new_all(); // must be mutable!
+                    let up_kb = sys.get_ntwk_up(); 
+                    let down_kb = sys.get_ntwk_down();
                     // Get memory & Swap usage
-                    let used_memory = s.used_memory();
-                    let available_memory = s.available_memory();
-                    // let used_swap=s.swap_used();
-                    // let used_mem =s.mem_usage();
-                    Self::debug(format!("{} bytes", used_memory));
-                    Self::debug(format!("{} bytes", available_memory));
+                    let used_swap=s.swap_used();
                     // Get Cpu usage
                     s.refresh_cpu(); // Refreshing CPU information.
                     let used_cpu = s.global_cpu_info().cpu_usage();
@@ -185,14 +184,14 @@ pub(crate) mod e2l_module {
                             rx_ho_frames: counters.rx_ho_frames,
                             proc_frames: counters.proc_frames,
                         },
-                        // mem_usage: used_mem,
-                        // mem_usage_percentage: used_mem*100.0,
-                        mem_available: available_memory,
-                        // ntwk_down: ntwk_down,
-                        // ntwk_up: ntwk_up,
+                        mem_usage: s.used_memory(),
+                        mem_usage_percentage: s.used_memory()*100,
+                        mem_available: s.available_memory(),
+                        ntwk_down: down_kb,
+                        ntwk_up: up_kb,
                         cpu_usage: used_cpu,
                         cpu_usage_percentage: used_cpu*100.0,
-                        // swp_usage_percentage: used_swap*100.0,
+                        swp_usage_percentage: used_swap,
                     };
                     //lock the thread and make clone out of gw_stats_obj
                     let mut lock = shared_clone.lock().unwrap();
