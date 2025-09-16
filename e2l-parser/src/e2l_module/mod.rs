@@ -1,6 +1,5 @@
 pub mod traits;
 pub(crate) mod e2l_module {
-    // use crate::e2l_module::traits;
     use crate::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo, FRAME_COUNTERS};
     use crate::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables, FrameCounters};
     use crate::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
@@ -17,7 +16,8 @@ pub(crate) mod e2l_module {
         parse, AsPhyPayloadBytes, DataHeader, DataPayload, EncryptedDataPayload, PhyPayload,
     };
     use rand::Rng;
-    use std::collections::HashMap;  
+    use std::collections::{HashMap, HashSet};  
+    use ordered_float::OrderedFloat;
     use std::time::{Duration};
     use sysinfo::{CpuExt, System, SystemExt};
     // use std::io::Read;
@@ -223,6 +223,7 @@ pub(crate) mod e2l_module {
 
             let mut device_map: HashMap<String, DevicePks> = HashMap::new();
 
+
             for rxpk in all_packets {
                 // Check if the packet is within the time window
                 // if let Ok(elapsed) = current_time.elapsed() {
@@ -230,19 +231,58 @@ pub(crate) mod e2l_module {
                         let dev_eui = hex::encode(&rxpk.data[0..8]);
                         let dev_addr = hex::encode(&rxpk.data[8..12]);
                         let device_key = dev_addr.clone();
-
+                        
                         //If the device already exists in the map, add this new packet to its list. 
                         //If it doesn't exist, insert a new device with the packet as its first entry.
                         device_map
-                            .entry(device_key.clone())
-                            .and_modify(|device| {
-                                device.rxpk.push(rxpk.clone());
-                            })
-                            .or_insert(DevicePks {
-                                dev_eui,
-                                dev_addr,
-                                rxpk: vec![rxpk.clone()],
-                            });
+                        .entry(device_key.clone())
+                        .and_modify(|device| {
+                            device.rxpk.push(rxpk.clone());
+                            device.modu_set.insert(rxpk.modu.clone());
+                            device.freq_set.insert(OrderedFloat(rxpk.freq));
+                            device.chan_set.insert(rxpk.chan.clone());
+
+                            if let Some((sf, bw)) = DevicePks::parse_datr(&rxpk.datr) {
+                                device.sf_set.insert(sf);
+                                device.bw_set.insert(bw);
+                            } else {
+                                println!("Invalid datr format: {}", rxpk.datr);
+                            }
+                        })
+                        .or_insert(DevicePks {
+                            dev_eui,
+                            dev_addr,
+                            rxpk: vec![rxpk.clone()],
+                            modu_set: {
+                                let mut m = HashSet::new();
+                                m.insert(rxpk.modu.clone());
+                                m
+                            },
+                            freq_set: {
+                                let mut f = HashSet::new();
+                                f.insert(OrderedFloat(rxpk.freq));
+                                f
+                            },
+                            chan_set: {
+                                let mut ch = HashSet::new();
+                                ch.insert(rxpk.chan.clone());
+                                ch
+                            },
+                            sf_set: {
+                                let mut sf = HashSet::new();
+                                if let Some((parsed_sf, _)) = DevicePks::parse_datr(&rxpk.datr) {
+                                    sf.insert(parsed_sf);
+                                }
+                                sf
+                            },
+                            bw_set: {
+                                let mut bw = HashSet::new();
+                                if let Some((_, parsed_bw)) = DevicePks::parse_datr(&rxpk.datr) {
+                                    bw.insert(parsed_bw);
+                                }
+                                bw
+                            },
+                        });
                 //     }
                 // }
             }
@@ -264,10 +304,16 @@ pub(crate) mod e2l_module {
 
                 let stats = DeviceStats {
                     dev_eui: device.dev_eui,
-                    dev_addr: device.dev_addr,
+                    // frames, 
+                    dev_addr: device.dev_addr, 
                     avg_rssi,
                     avg_snr,
                     avg_payload_size,
+                    modu: device.modu_set.clone(),
+                    freq: device.freq_set.clone(),
+                    chan: device.chan_set.clone(),
+                    sf:device.sf_set.clone(),
+                    bw:device.bw_set.clone()
                 };
 
                 stats_list.push(stats);
