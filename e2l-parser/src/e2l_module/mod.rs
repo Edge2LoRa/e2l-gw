@@ -123,6 +123,7 @@ pub(crate) mod e2l_module {
             let default_array: [u8; 4] = [0, 0, 0, 0];
             v.try_into().unwrap_or(default_array)
         }
+        
     }
 
     // PRIVATE FUNCTIONS
@@ -159,9 +160,10 @@ pub(crate) mod e2l_module {
                     mqtt_variables,
                     e2l_crypto_clone_publisher,
                 );
-                let counters = FRAME_COUNTERS.lock().unwrap();
+                
 
                 loop {
+                    println!("GATEWAY STATS: STARTING COLLECTING METRICS!");
                     s.refresh_memory();
                     // Get the total network usage
                     s.refresh_networks(); 
@@ -174,7 +176,7 @@ pub(crate) mod e2l_module {
                     s.refresh_cpu(); // Refreshing CPU information.
                     let used_cpu = s.global_cpu_info().cpu_usage();
                     Self::debug(format!("{}%", used_cpu));
-
+                    let counters = FRAME_COUNTERS.lock().unwrap();
                     let gw_stats_obj = GwStats {
                         gw_id: hostname.clone(),
                         frame: FrameCounters {
@@ -200,9 +202,11 @@ pub(crate) mod e2l_module {
 
 
                     let gw_stats_str = serde_json::to_string(&gw_stats_obj).unwrap();
-                    let _ = mqtt_client.publish_to_process(gw_stats_str);
-                    
-                    thread::sleep(Duration::from_millis(5000));
+                    // let _ = mqtt_client.publish_to_process(gw_stats_str);
+                   println!("GATEWAY STATS: {}", gw_stats_str);
+                   println!("GATEWAY STATS: SLEEPING FOR FIVE SECONDS");
+                   thread::sleep(Duration::from_millis(5000));
+                   
                 }
             });
             // Continuously attempts to acquire the latest gateway stats from the shared state.
@@ -301,10 +305,11 @@ pub(crate) mod e2l_module {
 
                 let avg_snr = device.avg_snr().unwrap_or(0.0);
                 let avg_payload_size = device.avg_payload_size().unwrap_or(0.0);
-
+                
+                
                 let stats = DeviceStats {
                     dev_eui: device.dev_eui,
-                    // frames, 
+                    fcnt: 1, 
                     dev_addr: device.dev_addr, 
                     avg_rssi,
                     avg_snr,
@@ -317,8 +322,10 @@ pub(crate) mod e2l_module {
                 };
 
                 stats_list.push(stats);
+                let stats_list_str = serde_json::to_string(&stats_list).unwrap();
+                println!("DEVICE STATS!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                println!("DEVICE STATS: {}", stats_list_str);
             }
-
             stats_list
         }
         async fn handle_data_payload(
@@ -359,7 +366,6 @@ pub(crate) mod e2l_module {
                     && e2l_crypto.check_e2ed_enabled(dev_addr_string.clone());
                 std::mem::drop(e2l_crypto);
                 if e2ed_enabled {
-                    let mut counters = FRAME_COUNTERS.lock().unwrap();
                     let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
                     let mqtt_payload_option = e2l_crypto.get_json_mqtt_payload(
                         dev_addr_string.clone(),
@@ -376,6 +382,7 @@ pub(crate) mod e2l_module {
                     ///////////////////////////////////////////////////////////////////////
                     match mqtt_payload_option {
                         Some(mqtt_payload) => {
+                            let mut counters = FRAME_COUNTERS.lock().unwrap();
                             counters.proc_frames += 1;
                             let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                 .unwrap_or_else(|_| "Error".to_string());
@@ -393,7 +400,6 @@ pub(crate) mod e2l_module {
                     //////////////////////////////////////////////////////////////////////
                     // If the end-device is not enabled then we have to check the port
                     /////////////////////////////////////////////////////////////////////
-                    let mut counters = FRAME_COUNTERS.lock().unwrap();
                     match f_port {
                         port if port == DEFAULT_E2L_APP_PORT => {
                             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
@@ -408,7 +414,7 @@ pub(crate) mod e2l_module {
                             
                             match mqtt_payload_option {
                                 Some(mqtt_payload) => {
-                                    
+                                    let mut counters = FRAME_COUNTERS.lock().unwrap();
                                     let gw_id = mqtt_payload.gw_id.clone();
                                     let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                         .unwrap_or_else(|_| "Error".to_string());
@@ -427,7 +433,7 @@ pub(crate) mod e2l_module {
                                         "Forwarding to NS: {:x?}",
                                         fwinfo.forward_host.clone()
                                     ));
-                                    counters.fw_frames += 1;
+                                    // counters.fw_frames += 1;
                                 } // _ => panic!("Forwarding protocol not implemented!"),
                             }
 
@@ -608,7 +614,7 @@ pub(crate) mod e2l_module {
              * GW STATS LOOP *
              ******************/
 
-            let _gw_stats:GwStats=self.start_gw_stats_thread().await;
+            self.start_gw_stats_thread().await;
 
             
             
@@ -745,26 +751,30 @@ pub(crate) mod e2l_module {
                                 for packet in data_json.rxpk.iter() {
                                     let data: Vec<u8> =
                                         general_purpose::STANDARD.decode(&packet.data).unwrap();
+                                
 
                                     let gwmac: String = hex::encode(&to_send[4..12]);
                                     Self::debug(format!("Extracted GwMac {:x?}", gwmac));
                                     
                                     let parsed_data = parse(data.clone());
                                     if data.len() < 26 {
-                                        panic!("Invalid data length");
+                                         println!("Invalid data length: {}, skipping packet", data.len());
+                                         continue;
                                     }
                                     let packet_copy = packet.clone();
                                     //Collect each 20 packets and do the calculation
-                                    if packets.len() < 21{
+                                    // if packets.len() < 21{
                                        packets.push(packet_copy);
-                                    }else {
-                                       break;
-                                    }
+                                    // }else {
+                                    //    break;
+                                    // }
                                     //pippo
                                     match parsed_data {
                                         Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
+                                            println!("WE ARE RECEIVING PACKETS!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
                                             let mut counters = FRAME_COUNTERS.lock().unwrap();
                                             counters.rx_frames += 1;
+
                                             let will_send_option = self
                                                 .handle_data_payload(
                                                     phy,

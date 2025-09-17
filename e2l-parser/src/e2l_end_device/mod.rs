@@ -23,7 +23,7 @@ pub(crate) mod e2l_end_device{
     #[derive(Debug, Serialize, Deserialize)]
     pub struct DeviceStats{
         pub dev_eui: String,
-        // pub frames: FrameCounters,  
+        pub fcnt: u16,  
         pub dev_addr: String,
         pub avg_rssi: f64,
         pub avg_snr: f64,
@@ -32,7 +32,7 @@ pub(crate) mod e2l_end_device{
         pub freq: HashSet<OrderedFloat<f32>>,
         pub chan: HashSet<Option<u32>>,
         pub sf: HashSet<u8>,
-        pub bw: HashSet<u32>
+        pub bw: HashSet<u32>,
     }
     impl DevicePks {
         pub fn avg_rssi(&self) -> Option<f64> {
