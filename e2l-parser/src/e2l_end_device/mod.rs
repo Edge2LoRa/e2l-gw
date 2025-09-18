@@ -15,14 +15,15 @@ pub(crate) mod e2l_end_device{
      pub rxpk:Vec<RxpkContent>,
      pub modu_set: HashSet<String>,
      pub freq_set: HashSet<OrderedFloat<f32>>,
-     pub chan_set: HashSet<Option<u32>>,
+     pub chan_set: HashSet<u32>,
      pub sf_set: HashSet<u8>,
      pub bw_set: HashSet<u32>
     }
 
-    #[derive(Debug, Serialize, Deserialize)]
+    #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct DeviceStats{
         pub dev_eui: String,
+        pub frames: FrameCounters,
         pub fcnt: u16,  
         pub dev_addr: String,
         pub avg_rssi: f64,
@@ -30,7 +31,7 @@ pub(crate) mod e2l_end_device{
         pub avg_payload_size:f64,
         pub modu: HashSet<String>,
         pub freq: HashSet<OrderedFloat<f32>>,
-        pub chan: HashSet<Option<u32>>,
+        pub chan: HashSet<u32>,
         pub sf: HashSet<u8>,
         pub bw: HashSet<u32>,
     }

@@ -1,7 +1,7 @@
 pub mod traits;
 pub(crate) mod e2l_module {
     use crate::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo, FRAME_COUNTERS};
-    use crate::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables, FrameCounters};
+    use crate::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables, CombinedStats, FrameCounters};
     use crate::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
     use crate::lorawan_structs::ForwardProtocols;
     use crate::{
@@ -128,7 +128,7 @@ pub(crate) mod e2l_module {
 
     // PRIVATE FUNCTIONS
     impl E2LModule {
-        async fn start_gw_stats_thread(&self) -> GwStats {
+        async fn start_gw_stats_thread(&self) -> Arc<Mutex<Option<GwStats>>> {
             // Passing the GW status as an object to the load_balancer_interface()
             // Create a thread-safe, shared container for `GwStats`.
             let shared_stats: Arc<Mutex<Option<GwStats>>> = Arc::new(Mutex::new(None));
@@ -154,7 +154,7 @@ pub(crate) mod e2l_module {
         
                 Self::info(format!("System counter stats thread started!"));
 
-                let mqtt_client = E2LMqttClient::new(
+                let _mqtt_client = E2LMqttClient::new(
                     hostname.clone(),
                     "sys_stats_publisher".to_string(),
                     mqtt_variables,
@@ -210,28 +210,23 @@ pub(crate) mod e2l_module {
                 }
             });
             // Continuously attempts to acquire the latest gateway stats from the shared state.
-            loop {
-                    {
-                        let lock = shared_stats.lock().unwrap();
-                        if let Some(stats) = &*lock {
-                            return stats.clone(); 
-                        }
-                    }
-                // Sleep to avoid tight loop
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            }
+            // loop {
+            //         {
+            //             let lock = shared_stats.lock().unwrap();
+            //             if let Some(stats) = &*lock {
+            //                 return stats.clone(); 
+            //             }
+            //         }
+            //     // Sleep to avoid tight loop
+            //     tokio::time::sleep(Duration::from_millis(100)).await;
+            // }
+            shared_stats
+
         }
         async fn collect_packets_for_devices(&self,all_packets: Vec<RxpkContent>) -> HashMap<String, DevicePks> {
-            //let window_duration = Duration::from_secs(60);
-            //let current_time = SystemTime::now();
-
             let mut device_map: HashMap<String, DevicePks> = HashMap::new();
 
-
             for rxpk in all_packets {
-                // Check if the packet is within the time window
-                // if let Ok(elapsed) = current_time.elapsed() {
-                //     if elapsed <= window_duration {
                         let dev_eui = hex::encode(&rxpk.data[0..8]);
                         let dev_addr = hex::encode(&rxpk.data[8..12]);
                         let device_key = dev_addr.clone();
@@ -244,7 +239,11 @@ pub(crate) mod e2l_module {
                             device.rxpk.push(rxpk.clone());
                             device.modu_set.insert(rxpk.modu.clone());
                             device.freq_set.insert(OrderedFloat(rxpk.freq));
-                            device.chan_set.insert(rxpk.chan.clone());
+
+                            if let Some(chan) = rxpk.chan {
+                                device.chan_set.insert(chan);
+                            }
+
 
                             if let Some((sf, bw)) = DevicePks::parse_datr(&rxpk.datr) {
                                 device.sf_set.insert(sf);
@@ -269,7 +268,9 @@ pub(crate) mod e2l_module {
                             },
                             chan_set: {
                                 let mut ch = HashSet::new();
-                                ch.insert(rxpk.chan.clone());
+                                if let Some(chan) = rxpk.chan {
+                                    ch.insert(chan); 
+                                }
                                 ch
                             },
                             sf_set: {
@@ -287,14 +288,12 @@ pub(crate) mod e2l_module {
                                 bw
                             },
                         });
-                //     }
-                // }
             }
 
             device_map
         }
-        async fn calculate_device_stats(&self,device_map: HashMap<String, DevicePks>) -> Vec<DeviceStats> {
-            let mut stats_list = Vec::new();
+        async fn calculate_device_stats(&self,device_map: HashMap<String, DevicePks>) -> HashMap<String,DeviceStats> {
+            let mut stats_list: HashMap<String, DeviceStats> = HashMap::new();
 
             for (_dev_addr, device) in device_map.into_iter() {
                 // Use the new methods
@@ -306,9 +305,10 @@ pub(crate) mod e2l_module {
                 let avg_snr = device.avg_snr().unwrap_or(0.0);
                 let avg_payload_size = device.avg_payload_size().unwrap_or(0.0);
                 
-                
+                let counters = FRAME_COUNTERS.lock().unwrap();
                 let stats = DeviceStats {
                     dev_eui: device.dev_eui,
+                    frames:FrameCounters { rx_frames: counters.rx_frames, fw_frames: counters.fw_frames, tx_ho_frames: counters.tx_ho_frames, rx_ho_frames:counters.rx_ho_frames, proc_frames: counters.proc_frames },
                     fcnt: 1, 
                     dev_addr: device.dev_addr, 
                     avg_rssi,
@@ -321,10 +321,9 @@ pub(crate) mod e2l_module {
                     bw:device.bw_set.clone()
                 };
 
-                stats_list.push(stats);
-                let stats_list_str = serde_json::to_string(&stats_list).unwrap();
-                println!("DEVICE STATS!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
-                println!("DEVICE STATS: {}", stats_list_str);
+                
+                stats_list.insert(_dev_addr, stats);
+                let _stats_list_str = serde_json::to_string(&stats_list).unwrap();
             }
             stats_list
         }
@@ -614,7 +613,8 @@ pub(crate) mod e2l_module {
              * GW STATS LOOP *
              ******************/
 
-            self.start_gw_stats_thread().await;
+            // let gw_stats= self.start_gw_stats_thread().await;
+            let shared_stats = self.start_gw_stats_thread().await;
 
             
             
@@ -725,6 +725,7 @@ pub(crate) mod e2l_module {
                     let to_send = buf[..num_bytes].to_vec();
 
                     let mut will_send = true;
+                    let mut packets: Vec<RxpkContent> = Vec::new();
 
                     match &to_send[3] {
                         // Scritto da Copilot: Match a single value to a single value to avoid a match on a slice of a single value and a single value slice. This is a bit of a hack, but it works. I'm sorry. I'm sorry. I'm sorry.
@@ -735,7 +736,7 @@ pub(crate) mod e2l_module {
                                 "Evaluate if forwarding packet from client {:?} to upstream server",
                                 data_json.rxpk
                             ));
-                            let mut packets: Vec<RxpkContent> = Vec::new();
+                           
                             if data_json.rxpk.len() == 0 {
                                 let fwinfo = self.fwinfo.lock().expect("Could not lock!");
                                 match fwinfo.forward_protocol {
@@ -795,7 +796,7 @@ pub(crate) mod e2l_module {
                                         }
                                         Ok(PhyPayload::JoinRequest(phy)) => {
                                             let fwinfo =
-                                                self.fwinfo.lock().expect("Could not lock!");
+                                            self.fwinfo.lock().expect("Could not lock!");
                                             match fwinfo.forward_protocol {
                                                 ForwardProtocols::UDP => {
                                                         Self::debug(format!(
@@ -816,12 +817,31 @@ pub(crate) mod e2l_module {
                                     }
                                 }
                             }
-                        let device_map = self.collect_packets_for_devices(packets).await; 
-                        self.calculate_device_stats(device_map).await; 
+                            
+
+                            
                         }
                         _ => (),
                     }
+                    let device_map = self.collect_packets_for_devices(packets).await; 
+                    let device_stats=self.calculate_device_stats(device_map).await; 
+                    
+                    let gw_stats = {
+                                let lock = shared_stats.lock().unwrap();
+                                if let Some(stats) = &*lock {
+                                    stats.clone()
+                                } else {
+                                    // handle the missing case (e.g., skip this cycle, log warning, etc.)
+                                    continue; // or return early
+                                }
+                            };
+                    let stats = CombinedStats {
+                                gw_stats,
+                                devices_stats: device_stats,
+                            };
 
+                            println!("THE STATUS OF END-DEVICE AND GATEWAY {:?}", stats);
+              
                     if will_send {
                         match sender.send(to_send.to_vec().clone()) {
                             Ok(_) => {
@@ -853,6 +873,7 @@ pub(crate) mod e2l_module {
                         break;
                     }
                 }
+                
             }
 
             // Ok(())
