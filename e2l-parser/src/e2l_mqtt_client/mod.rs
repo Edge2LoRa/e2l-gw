@@ -108,9 +108,10 @@ pub(crate) mod e2l_mqtt_client {
         pub cpu_usage: f32,
         pub cpu_usage_percentage:f32,
     }
+    #[derive(Debug, Serialize)]
     pub struct Stats{
-        gw_stats: GwStats,
-        devices_stats: HashMap<String, DeviceStats>
+        pub gw_stats: GwStats,
+        pub devices_stats: HashMap<String, DeviceStats>
     }
 
     #[derive(Debug, Serialize, Deserialize)]
