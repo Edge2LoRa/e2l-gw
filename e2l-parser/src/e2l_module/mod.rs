@@ -41,11 +41,9 @@ pub(crate) mod e2l_module {
     const TIMEOUT: u64 = 3 * 60 * 100;
     static mut DEBUG: bool = false;
 
-    // LORAWAN PORTS
+    // PORTS
     static DEFAULT_APP_PORT: u8 = 2;
-    static _DEFAULT_E2L_JOIN_PORT: u8 = 3;
     static DEFAULT_E2L_APP_PORT: u8 = 4;
-    static _DEFAULT_E2L_COMMAND_PORT: u8 = 5;
 
     lazy_static! {
         static ref PACKETNAMES: HashMap<u8, &'static str> = {
@@ -209,17 +207,6 @@ pub(crate) mod e2l_module {
                    
                 }
             });
-            // Continuously attempts to acquire the latest gateway stats from the shared state.
-            // loop {
-            //         {
-            //             let lock = shared_stats.lock().unwrap();
-            //             if let Some(stats) = &*lock {
-            //                 return stats.clone(); 
-            //             }
-            //         }
-            //     // Sleep to avoid tight loop
-            //     tokio::time::sleep(Duration::from_millis(100)).await;
-            // }
             shared_stats
 
         }
@@ -409,8 +396,8 @@ pub(crate) mod e2l_module {
                                     packet,
                                     gwmac,
                                 );
+                            println!("THAT IS THE PLACE THAT WE TOOK MQTT PAYLOAD NEW!{:?}",mqtt_payload_option);
                             std::mem::drop(e2l_crypto);
-                            
                             match mqtt_payload_option {
                                 Some(mqtt_payload) => {
                                     let mut counters = FRAME_COUNTERS.lock().unwrap();
@@ -418,21 +405,23 @@ pub(crate) mod e2l_module {
                                     let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                         .unwrap_or_else(|_| "Error".to_string());
                                     mqtt_client.publish_to_handover(gw_id, mqtt_payload_str);
-                                    counters.tx_ho_frames += 1;
+                                    counters.proc_frames += 1;
                                     will_send = false;
                                 }
                                 None => {}
                             }
                         }
                         port if port == DEFAULT_APP_PORT => {
+                            println!("THAT IS THE NUMBER OF PORT:{}",port);
                             let fwinfo = self.fwinfo.lock().expect("Could not lock!");
+                            let mut counters = FRAME_COUNTERS.lock().unwrap();
                             match fwinfo.forward_protocol {
                                 ForwardProtocols::UDP => {
                                     Self::debug(format!(
                                         "Forwarding to NS: {:x?}",
                                         fwinfo.forward_host.clone()
                                     ));
-                                    // counters.fw_frames += 1;
+                                    counters.fw_frames += 1;
                                 } // _ => panic!("Forwarding protocol not implemented!"),
                             }
 
@@ -612,13 +601,8 @@ pub(crate) mod e2l_module {
             /******************
              * GW STATS LOOP *
              ******************/
-
-            // let gw_stats= self.start_gw_stats_thread().await;
             let shared_stats = self.start_gw_stats_thread().await;
-
             
-            
-
             /*************
              * MAIN LOOP *
              *************/
@@ -726,7 +710,7 @@ pub(crate) mod e2l_module {
 
                     let mut will_send = true;
                     let mut packets: Vec<RxpkContent> = Vec::new();
-
+                    
                     match &to_send[3] {
                         // Scritto da Copilot: Match a single value to a single value to avoid a match on a slice of a single value and a single value slice. This is a bit of a hack, but it works. I'm sorry. I'm sorry. I'm sorry.
                         0 => {
@@ -818,11 +802,12 @@ pub(crate) mod e2l_module {
                                 }
                             }
                             
-
                             
                         }
                         _ => (),
+                        
                     }
+
                     let device_map = self.collect_packets_for_devices(packets).await; 
                     let device_stats=self.calculate_device_stats(device_map).await; 
                     
@@ -835,12 +820,13 @@ pub(crate) mod e2l_module {
                                     continue; // or return early
                                 }
                             };
+                    
                     let stats = CombinedStats {
-                                gw_stats,
-                                devices_stats: device_stats,
-                            };
+                        gw_stats,
+                        devices_stats: device_stats,
+                    };
 
-                            println!("THE STATUS OF END-DEVICE AND GATEWAY {:?}", stats);
+                    println!("THE STATUS OF END-DEVICE AND GATEWAY {:?}", stats);
               
                     if will_send {
                         match sender.send(to_send.to_vec().clone()) {

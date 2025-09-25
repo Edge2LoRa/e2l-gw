@@ -476,6 +476,7 @@ pub(crate) mod e2l_mqtt_client {
                 while let Some(msg_opt) = strm.next().await {
                     match msg_opt {
                         Some(msg) => {
+                            println!("INFO: WELCOME TO THE EMQX COMMANDS:))))");
                             let payload_str = msg.payload_str().to_string();
                             let topic = msg.topic();
                             // Split topic at /
