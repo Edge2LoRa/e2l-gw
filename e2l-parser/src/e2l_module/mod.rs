@@ -334,7 +334,7 @@ pub(crate) mod e2l_module {
             let _dev_addr = u32::from_be_bytes(Self::extract_dev_addr_array(
                 dev_addr_vec.into_iter().rev().collect(),
             ));
-
+            
             let is_active: bool;
             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
             is_active = e2l_crypto.is_active();
@@ -394,9 +394,8 @@ pub(crate) mod e2l_module {
                                     dev_addr_string.clone(),
                                     fcnt,
                                     packet,
-                                    gwmac,
+                                    gwmac.clone(),
                                 );
-                            println!("THAT IS THE PLACE THAT WE TOOK MQTT PAYLOAD NEW!{:?}",mqtt_payload_option);
                             std::mem::drop(e2l_crypto);
                             match mqtt_payload_option {
                                 Some(mqtt_payload) => {
@@ -627,6 +626,7 @@ pub(crate) mod e2l_module {
                     let mut ignore_failure = true;
                     let client_id = format!("{}", src_addr);
 
+
                     if remove_existing {
                         Self::debug(format!("Removing existing forwarder from map."));
                         client_map.remove(&client_id);
@@ -706,6 +706,7 @@ pub(crate) mod e2l_module {
                         sender
                     });
 
+
                     let to_send = buf[..num_bytes].to_vec();
 
                     let mut will_send = true;
@@ -737,7 +738,7 @@ pub(crate) mod e2l_module {
                                     let data: Vec<u8> =
                                         general_purpose::STANDARD.decode(&packet.data).unwrap();
                                 
-
+                                    
                                     let gwmac: String = hex::encode(&to_send[4..12]);
                                     Self::debug(format!("Extracted GwMac {:x?}", gwmac));
                                     

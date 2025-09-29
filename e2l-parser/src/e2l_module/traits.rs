@@ -91,6 +91,11 @@ impl NtwkStats for System {
             .sum::<i32>() / 128
     }
     fn swap_used(&mut self) -> u64 {
-        (self.used_swap() as u64 * 100) / (self.total_swap() as u64)
+        let total = self.total_swap() as u64;
+        if total == 0 {
+            0
+        } else {
+            (self.used_swap() as u64 * 100) / total
+        }
     }
 }
