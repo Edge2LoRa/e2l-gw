@@ -1,7 +1,7 @@
 pub mod traits;
 pub(crate) mod e2l_module {
-    use crate::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo, FRAME_COUNTERS};
-    use crate::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables, CombinedStats, FrameCounters};
+    use crate::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo};
+    use crate::e2l_mqtt_client::e2l_mqtt_client::{MqttVariables};
     use crate::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
     use crate::lorawan_structs::ForwardProtocols;
     use crate::{
@@ -9,7 +9,7 @@ pub(crate) mod e2l_module {
         filters_json_structs::filter_json::EnvVariables,
         lorawan_structs::ForwardInfo,
     };
-    use crate::e2l_end_device::e2l_end_device::{DeviceStats, DevicePks};
+    use crate::e2l_end_device::e2l_end_device::{CombinedStats, DeviceMap, DevicePks, DeviceStats, FrameCounters, GwStats, FRAME_COUNTERS};
     use gethostname::gethostname;
     use lorawan_encoding::default_crypto::DefaultFactory;
     use lorawan_encoding::parser::{
@@ -62,6 +62,7 @@ pub(crate) mod e2l_module {
         hostname: Arc<Mutex<String>>,
         fwinfo: Arc<Mutex<ForwardInfo>>,
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
+        shared_device_map: Arc<Mutex<Option<DeviceMap>>>,
     }
     // STATIC FUNCTION
     impl E2LModule {
@@ -126,13 +127,8 @@ pub(crate) mod e2l_module {
 
     // PRIVATE FUNCTIONS
     impl E2LModule {
-        async fn start_gw_stats_thread(&self) -> Arc<Mutex<Option<GwStats>>> {
-            // Passing the GW status as an object to the load_balancer_interface()
-            // Create a thread-safe, shared container for `GwStats`.
-            let shared_stats: Arc<Mutex<Option<GwStats>>> = Arc::new(Mutex::new(None));
-            // `shared_clone` is a cloned handle to the same shared state, allowing
-            // another thread to update or read the stats concurrently.
-            let shared_clone = Arc::clone(&shared_stats);
+        async fn start_stats_thread(&self) {
+            let combined_stats = Arc::new(Mutex::new(None::<CombinedStats>));
 
             Self::info(format!("Starting System counter stats thread!"));
             let hostname_mut = self.hostname.lock().expect("Could not lock!");
@@ -144,176 +140,216 @@ pub(crate) mod e2l_module {
             std::mem::drop(hostname_mut);
             let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
 
-           
+            let device_map_ref = Arc::clone(&self.shared_device_map);
 
             thread::spawn(move || {
-                let mut s: System = System::new_all();
+                    let mut s: System = System::new_all();
             
-        
-                Self::info(format!("System counter stats thread started!"));
+                    Self::info(format!("System counter stats thread started!"));
 
-                let _mqtt_client = E2LMqttClient::new(
-                    hostname.clone(),
-                    "sys_stats_publisher".to_string(),
-                    mqtt_variables,
-                    e2l_crypto_clone_publisher,
-                );
+                    let _mqtt_client = E2LMqttClient::new(
+                        hostname.clone(),
+                        "sys_stats_publisher".to_string(),
+                        mqtt_variables,
+                        e2l_crypto_clone_publisher,
+                    );
+                    let rt = tokio::runtime::Runtime::new().unwrap();
+
+                    loop {
+                        s.refresh_memory();
+                        // Get the total network usage
+                        s.refresh_networks(); 
+                        let mut sys = System::new_all(); // must be mutable!
+                        let up_kb = sys.get_ntwk_up(); 
+                        let down_kb = sys.get_ntwk_down();
+                        // Get memory & Swap usage
+                        let used_swap=s.swap_used();
+                        // Get Cpu usage
+                        s.refresh_cpu(); // Refreshing CPU information.
+                        let used_cpu = s.global_cpu_info().cpu_usage();
+                        Self::debug(format!("{}%", used_cpu));
+                        let counters_snapshot = {
+                            let counters = FRAME_COUNTERS.lock().unwrap();
+                            counters.clone() 
+                        };
+                        let gw_stats_obj = GwStats {
+                            gw_id: hostname.clone(),
+                            frame: FrameCounters {
+                                rx_frames: counters_snapshot.rx_frames,
+                                fw_frames: counters_snapshot.fw_frames,
+                                tx_ho_frames: counters_snapshot.tx_ho_frames,
+                                rx_ho_frames: counters_snapshot.rx_ho_frames,
+                                proc_frames: counters_snapshot.proc_frames,
+                            },
+                            mem_usage: s.used_memory(),
+                            mem_usage_percentage: s.used_memory()*100,
+                            mem_available: s.available_memory(),
+                            ntwk_down: down_kb,
+                            ntwk_up: up_kb,
+                            cpu_usage: used_cpu,
+                            cpu_usage_percentage: used_cpu*100.0,
+                            swp_usage_percentage: used_swap,
+                        };
+
+                        let merge_stats = {
+                            let sample_device_map = device_map_ref.lock().unwrap();
+                            let device_stats = if let Some(ref device_map) = *sample_device_map {
+                                rt.block_on(E2LModule::calculate_device_stats(device_map.clone()))
+                            } else {
+                                HashMap::new() 
+                            };
+                            Some(CombinedStats {
+                                gw_stats: gw_stats_obj,
+                                devices_stats: device_stats,
+                            })
+                        };
+
+                        // Update shared combined stats
+                        if let Some(combined) = merge_stats {
+                            let mut lock = combined_stats.lock().unwrap();
+                            *lock = Some(combined);
+
+                            if let Some(ref stored) = *lock {
+                                println!("CombinedStats stored: {:#?}", stored);
+                            } else {
+                                println!("CombinedStats is somehow None after storing!");
+                            }
+                        }else {
+                            println!("You Dont have the combined status!!!!!");
+                        }
+                        
+                        thread::sleep(Duration::from_secs(5));
+                    }
+               
                 
-
-                loop {
-                    println!("GATEWAY STATS: STARTING COLLECTING METRICS!");
-                    s.refresh_memory();
-                    // Get the total network usage
-                    s.refresh_networks(); 
-                    let mut sys = System::new_all(); // must be mutable!
-                    let up_kb = sys.get_ntwk_up(); 
-                    let down_kb = sys.get_ntwk_down();
-                    // Get memory & Swap usage
-                    let used_swap=s.swap_used();
-                    // Get Cpu usage
-                    s.refresh_cpu(); // Refreshing CPU information.
-                    let used_cpu = s.global_cpu_info().cpu_usage();
-                    Self::debug(format!("{}%", used_cpu));
-                    let counters = FRAME_COUNTERS.lock().unwrap();
-                    let gw_stats_obj = GwStats {
-                        gw_id: hostname.clone(),
-                        frame: FrameCounters {
-                            rx_frames: counters.rx_frames,
-                            fw_frames: counters.fw_frames,
-                            tx_ho_frames: counters.tx_ho_frames,
-                            rx_ho_frames: counters.rx_ho_frames,
-                            proc_frames: counters.proc_frames,
-                        },
-                        mem_usage: s.used_memory(),
-                        mem_usage_percentage: s.used_memory()*100,
-                        mem_available: s.available_memory(),
-                        ntwk_down: down_kb,
-                        ntwk_up: up_kb,
-                        cpu_usage: used_cpu,
-                        cpu_usage_percentage: used_cpu*100.0,
-                        swp_usage_percentage: used_swap,
-                    };
-                    //lock the thread and make clone out of gw_stats_obj
-                    let mut lock = shared_clone.lock().unwrap();
-                    *lock = Some(gw_stats_obj.clone());
-
-
-
-                    let gw_stats_str = serde_json::to_string(&gw_stats_obj).unwrap();
-                    // let _ = mqtt_client.publish_to_process(gw_stats_str);
-                   println!("GATEWAY STATS: {}", gw_stats_str);
-                   println!("GATEWAY STATS: SLEEPING FOR FIVE SECONDS");
-                   thread::sleep(Duration::from_millis(5000));
-                   
-                }
             });
-            shared_stats
+            // Arc::clone(&combined_stats);
 
         }
-        async fn collect_packets_for_devices(&self,all_packets: Vec<RxpkContent>) -> HashMap<String, DevicePks> {
-            let mut device_map: HashMap<String, DevicePks> = HashMap::new();
+        
+        async fn collect_packets_for_devices(&self, all_packets: Vec<RxpkContent>) -> DeviceMap {
+            let device_map = DeviceMap::new(); 
 
             for rxpk in all_packets {
                         let dev_eui = hex::encode(&rxpk.data[0..8]);
                         let dev_addr = hex::encode(&rxpk.data[8..12]);
                         let device_key = dev_addr.clone();
                         
-                        //If the device already exists in the map, add this new packet to its list. 
-                        //If it doesn't exist, insert a new device with the packet as its first entry.
-                        device_map
-                        .entry(device_key.clone())
-                        .and_modify(|device| {
-                            device.rxpk.push(rxpk.clone());
-                            device.modu_set.insert(rxpk.modu.clone());
-                            device.freq_set.insert(OrderedFloat(rxpk.freq));
+                        let mut map = device_map.inner.lock().unwrap();
 
-                            if let Some(chan) = rxpk.chan {
-                                device.chan_set.insert(chan);
-                            }
+                        map.entry(device_key.clone())
+                            .and_modify(|device| {
+                                device.rxpk.push(rxpk.clone());
+                                device.modu_set.insert(rxpk.modu.clone());
+                                device.freq_set.insert(OrderedFloat(rxpk.freq));
 
-
-                            if let Some((sf, bw)) = DevicePks::parse_datr(&rxpk.datr) {
-                                device.sf_set.insert(sf);
-                                device.bw_set.insert(bw);
-                            } else {
-                                println!("Invalid datr format: {}", rxpk.datr);
-                            }
-                        })
-                        .or_insert(DevicePks {
-                            dev_eui,
-                            dev_addr,
-                            rxpk: vec![rxpk.clone()],
-                            modu_set: {
-                                let mut m = HashSet::new();
-                                m.insert(rxpk.modu.clone());
-                                m
-                            },
-                            freq_set: {
-                                let mut f = HashSet::new();
-                                f.insert(OrderedFloat(rxpk.freq));
-                                f
-                            },
-                            chan_set: {
-                                let mut ch = HashSet::new();
                                 if let Some(chan) = rxpk.chan {
-                                    ch.insert(chan); 
+                                    device.chan_set.insert(chan);
                                 }
-                                ch
-                            },
-                            sf_set: {
-                                let mut sf = HashSet::new();
-                                if let Some((parsed_sf, _)) = DevicePks::parse_datr(&rxpk.datr) {
-                                    sf.insert(parsed_sf);
+
+                                if let Some((sf, bw)) = DevicePks::parse_datr(&rxpk.datr) {
+                                    device.sf_set.insert(sf);
+                                    device.bw_set.insert(bw);
+                                } else {
+                                    println!("Invalid datr format: {}", rxpk.datr);
                                 }
-                                sf
-                            },
-                            bw_set: {
-                                let mut bw = HashSet::new();
-                                if let Some((_, parsed_bw)) = DevicePks::parse_datr(&rxpk.datr) {
-                                    bw.insert(parsed_bw);
-                                }
-                                bw
-                            },
-                        });
+                            })
+                            .or_insert(DevicePks {
+                                dev_eui,
+                                dev_addr,
+                                rxpk: vec![rxpk.clone()],
+                                modu_set: {
+                                    let mut m = HashSet::new();
+                                    m.insert(rxpk.modu.clone());
+                                    m
+                                },
+                                freq_set: {
+                                    let mut f = HashSet::new();
+                                    f.insert(OrderedFloat(rxpk.freq));
+                                    f
+                                },
+                                chan_set: {
+                                    let mut ch = HashSet::new();
+                                    if let Some(chan) = rxpk.chan {
+                                        ch.insert(chan);
+                                    }
+                                    ch
+                                },
+                                sf_set: {
+                                    let mut sf = HashSet::new();
+                                    if let Some((parsed_sf, _)) = DevicePks::parse_datr(&rxpk.datr) {
+                                        sf.insert(parsed_sf);
+                                    }
+                                    sf
+                                },
+                                bw_set: {
+                                    let mut bw = HashSet::new();
+                                    if let Some((_, parsed_bw)) = DevicePks::parse_datr(&rxpk.datr) {
+                                        bw.insert(parsed_bw);
+                                    }
+                                    bw
+                                },
+                            });
+                        
+                            {
+                                let mut shared = self.shared_device_map.lock().unwrap();
+                                *shared = Some(device_map.clone()); 
+                            }
+
             }
 
             device_map
         }
-        async fn calculate_device_stats(&self,device_map: HashMap<String, DevicePks>) -> HashMap<String,DeviceStats> {
+        pub async fn calculate_device_stats(device_map: DeviceMap) -> HashMap<String,DeviceStats> {
             let mut stats_list: HashMap<String, DeviceStats> = HashMap::new();
+            let map = device_map.inner.lock().unwrap();
 
-            for (_dev_addr, device) in device_map.into_iter() {
-                // Use the new methods
-                let avg_rssi = match device.avg_rssi() {
-                    Some(val) => val,
-                    None => continue,
-                };
+            
+            for (dev_addr, device) in map.iter() {            
+                let (avg_rssi, avg_snr, avg_payload_size) = if device.rxpk.len() == 1 {
+                    let packet = &device.rxpk[0];
+                    let rssi = packet.rssi.unwrap_or(0) as i32;
+                    let snr = packet.lsnr.unwrap_or(0.0) as f32;
+                    let payload_size = packet.data.len() as f32;
 
-                let avg_snr = device.avg_snr().unwrap_or(0.0);
-                let avg_payload_size = device.avg_payload_size().unwrap_or(0.0);
+                    // println!("Device {} has 1 packet — using exact values.", dev_addr);
+                    (rssi, snr, payload_size)
+                }else{
+                    let rssi = match device.avg_rssi() {
+                        Some(val) => val,
+                        None => {
+                            println!("Skipping device {} — no valid RSSI avg.", dev_addr);
+                            continue;
+                        }
+                    } as i32;
+
+                    let snr = device.avg_snr().unwrap_or(0.0) as f32;
+                    let payload_size = device.avg_payload_size().unwrap_or(0.0) as f32;
+
+                    (rssi, snr, payload_size)
+                }; 
                 
                 let counters = FRAME_COUNTERS.lock().unwrap();
                 let stats = DeviceStats {
-                    dev_eui: device.dev_eui,
+                    dev_eui: device.dev_eui.clone(),
                     frames:FrameCounters { rx_frames: counters.rx_frames, fw_frames: counters.fw_frames, tx_ho_frames: counters.tx_ho_frames, rx_ho_frames:counters.rx_ho_frames, proc_frames: counters.proc_frames },
                     fcnt: 1, 
-                    dev_addr: device.dev_addr, 
-                    avg_rssi,
-                    avg_snr,
-                    avg_payload_size,
+                    dev_addr: device.dev_addr.clone(), 
+                    avg_rssi: avg_rssi.into(),
+                    avg_snr: avg_snr.into(),
+                    avg_payload_size: avg_payload_size.into(),
                     modu: device.modu_set.clone(),
                     freq: device.freq_set.clone(),
                     chan: device.chan_set.clone(),
                     sf:device.sf_set.clone(),
                     bw:device.bw_set.clone()
                 };
-
-                
-                stats_list.insert(_dev_addr, stats);
-                let _stats_list_str = serde_json::to_string(&stats_list).unwrap();
+                stats_list.insert(dev_addr.to_string(), stats);
+                // let stats_list_str = serde_json::to_string(&stats_list).unwrap();
             }
             stats_list
         }
+
         async fn handle_data_payload(
             &self,
             phy: EncryptedDataPayload<Vec<u8>, DefaultFactory>,
@@ -475,10 +511,11 @@ pub(crate) mod e2l_module {
                 hostname: Arc::new(Mutex::new(hostname.clone())),
                 fwinfo: Arc::new(Mutex::new(fwinfo)),
                 e2l_crypto: e2l_crypto_arc,
+                shared_device_map:Arc::new(Mutex::new(None)),
             }
         }
 
-        pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
             /**************************
              * MQTT BROKER CONNECTION *
              **************************/
@@ -530,6 +567,11 @@ pub(crate) mod e2l_module {
                     tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
                 rt.block_on(handover_mqtt_client.run_handover_client());
             });
+
+            /***********************
+             * START STATS THREAD
+             ***********************/
+             let _combined_stats = self.start_stats_thread().await;
 
             /***********************
              * SEND PUB INFO TO AS *
@@ -596,11 +638,6 @@ pub(crate) mod e2l_module {
                     ));
                 }
             });
-
-            /******************
-             * GW STATS LOOP *
-             ******************/
-            let shared_stats = self.start_gw_stats_thread().await;
             
             /*************
              * MAIN LOOP *
@@ -747,17 +784,12 @@ pub(crate) mod e2l_module {
                                          println!("Invalid data length: {}, skipping packet", data.len());
                                          continue;
                                     }
-                                    let packet_copy = packet.clone();
-                                    //Collect each 20 packets and do the calculation
-                                    // if packets.len() < 21{
-                                       packets.push(packet_copy);
-                                    // }else {
-                                    //    break;
-                                    // }
-                                    //pippo
                                     match parsed_data {
                                         Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
-                                            println!("WE ARE RECEIVING PACKETS!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!");
+                                            //To collect only valid packets not join request
+                                            let packet_copy = packet.clone();
+                                            packets.push(packet_copy);
+
                                             let mut counters = FRAME_COUNTERS.lock().unwrap();
                                             counters.rx_frames += 1;
 
@@ -801,6 +833,7 @@ pub(crate) mod e2l_module {
                                         }
                                     }
                                 }
+                                let _device_map = self.collect_packets_for_devices(packets).await;  
                             }
                             
                             
@@ -809,26 +842,6 @@ pub(crate) mod e2l_module {
                         
                     }
 
-                    let device_map = self.collect_packets_for_devices(packets).await; 
-                    let device_stats=self.calculate_device_stats(device_map).await; 
-                    
-                    let gw_stats = {
-                                let lock = shared_stats.lock().unwrap();
-                                if let Some(stats) = &*lock {
-                                    stats.clone()
-                                } else {
-                                    // handle the missing case (e.g., skip this cycle, log warning, etc.)
-                                    continue; // or return early
-                                }
-                            };
-                    
-                    let stats = CombinedStats {
-                        gw_stats,
-                        devices_stats: device_stats,
-                    };
-
-                    println!("THE STATUS OF END-DEVICE AND GATEWAY {:?}", stats);
-              
                     if will_send {
                         match sender.send(to_send.to_vec().clone()) {
                             Ok(_) => {

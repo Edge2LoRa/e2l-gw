@@ -1,5 +1,5 @@
 pub mod e2l_module;
-pub use crate::e2l_module::e2l_module::E2LModule;
+pub use e2l_module::e2l_module::E2LModule;
 pub mod lorawan_structs;
 pub mod filters_json_structs;
 pub mod e2l_active_directory;

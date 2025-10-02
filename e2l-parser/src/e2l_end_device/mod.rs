@@ -1,23 +1,73 @@
 pub(crate) mod e2l_end_device{
+    use std::sync::{Arc, Mutex};
     use std::collections::HashSet;
     use ordered_float::OrderedFloat;
+    use std::collections::HashMap;
+
+
 
 
     use serde_derive::Deserialize;
     use serde_derive::Serialize;
-    use crate::e2l_mqtt_client::e2l_mqtt_client::FrameCounters;
     use crate::lorawan_structs::lora_structs::RxpkContent;
 
-    #[derive(Debug, Serialize, Deserialize)]
+    // One Global variable will be used by multiple threads
+    use once_cell::sync::Lazy;
+
+    #[derive(Debug, Serialize, Deserialize, Clone)]
+    pub struct FrameCounters {
+        pub rx_frames: u32,//The number of LoRaWAN frames that has received by the gateway from the end-device(Uplink messages)
+        pub fw_frames: u32,//--> The number of LoRaWAN frames transmitted by the GW to the Network Server using the standard LoRaWAN Specification during the reporting period.
+        pub tx_ho_frames: u32,//--> The number of frames the GW forwarded to other GWs using the handover procedure during the reporting period.
+        pub rx_ho_frames: u32,//--> The number of frames  received by the GW by the other GWs using the handover procedure
+        pub proc_frames: u32,//--> The number of frames the GW locally processed, i.e. the number of frames the Parser Module published to the process topic.
+    }
+    impl Default for FrameCounters {
+        fn default() -> Self {
+            FrameCounters {
+                rx_frames: 0,
+                fw_frames: 0,
+                tx_ho_frames: 0,
+                rx_ho_frames: 0,
+                proc_frames: 0,
+            }
+        }
+    }
+    // A thread-safe, global mutable instance
+    pub static FRAME_COUNTERS: Lazy<Mutex<FrameCounters>> = Lazy::new(|| {
+        Mutex::new(FrameCounters::default())
+    });
+
+     #[derive(Debug, Serialize, Deserialize, Clone)]
+    pub struct GwStats {
+        pub gw_id: String,
+        pub frame: FrameCounters,
+        pub mem_available: u64,
+        pub mem_usage: u64,
+        pub mem_usage_percentage: u64,
+        pub swp_usage_percentage:u64,
+        pub ntwk_down:i32,
+        pub ntwk_up:i32,
+        pub cpu_usage: f32,
+        pub cpu_usage_percentage:f32,
+    }
+
+    #[derive(Debug, Serialize, Deserialize, Clone)]
     pub struct DevicePks{
-     pub dev_eui:String,
-     pub dev_addr:String,
-     pub rxpk:Vec<RxpkContent>,
-     pub modu_set: HashSet<String>,
-     pub freq_set: HashSet<OrderedFloat<f32>>,
-     pub chan_set: HashSet<u32>,
-     pub sf_set: HashSet<u8>,
-     pub bw_set: HashSet<u32>
+        pub dev_eui:String,
+        pub dev_addr:String,
+        pub rxpk:Vec<RxpkContent>,
+        pub modu_set: HashSet<String>,
+        pub freq_set: HashSet<OrderedFloat<f32>>,
+        pub chan_set: HashSet<u32>,
+        pub sf_set: HashSet<u8>,
+        pub bw_set: HashSet<u32>
+    }
+    
+    #[derive(Debug, Clone, Default)]
+    //To access a hash map inside mutex
+    pub struct DeviceMap {
+        pub inner: Arc<Mutex<HashMap<String, DevicePks>>>,
     }
 
     #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -35,6 +85,22 @@ pub(crate) mod e2l_end_device{
         pub sf: HashSet<u8>,
         pub bw: HashSet<u32>,
     }
+
+    #[derive(Debug, Serialize, Clone)]
+    pub struct CombinedStats{
+        pub gw_stats: GwStats,
+        pub devices_stats: HashMap<String, DeviceStats>
+    }
+
+
+    impl DeviceMap {
+        pub fn new() -> Self {
+            DeviceMap {
+                inner: Arc::new(Mutex::new(HashMap::new())),
+            }
+        }
+    }
+
     impl DevicePks {
         pub fn avg_rssi(&self) -> Option<f64> {
             let (sum, count) = self.rxpk.iter()

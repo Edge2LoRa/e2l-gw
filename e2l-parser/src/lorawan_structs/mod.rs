@@ -10,13 +10,13 @@ pub(crate) mod lora_structs {
     use serde_derive::Deserialize;
     use serde_derive::Serialize;
 
-    #[derive(Debug, Serialize, Deserialize)]
-    #[serde(tag = "type")]
-    pub enum RxPks {
-        RxpkC(RxpkContent),
-        RxpkCK(RxpkContentKerlink),
-    }
-    #[derive(Debug, Serialize, Deserialize, Clone)]
+    // #[derive(Debug, Serialize, Deserialize)]
+    // #[serde(tag = "type")]
+    // pub enum RxPks {
+    //     RxpkC(RxpkContent),
+    //     RxpkCK(RxpkContentKerlink),
+    // }
+    #[derive(Debug, Serialize, Deserialize, Clone, Default)]
     pub struct RxpkContent {
         pub time: Option<String>,
         pub tmst: u32,

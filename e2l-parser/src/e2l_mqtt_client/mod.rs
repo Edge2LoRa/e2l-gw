@@ -9,39 +9,11 @@ pub(crate) mod e2l_mqtt_client {
     use std::sync::{Arc, Mutex};
 
     use crate::e2l_crypto::e2l_crypto::E2LCrypto;
-    // use crate::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
-    use crate::e2l_end_device::e2l_end_device::{DeviceStats};
+    use crate::e2l_end_device::e2l_end_device::FRAME_COUNTERS;
     use paho_mqtt as mqtt;
     use reqwest::Client;
     use std::time::Duration;
-    use std::collections::HashMap;
-    
-    // One Global variable will be used by multiple threads
-    use once_cell::sync::Lazy;
 
-    #[derive(Debug, Serialize, Deserialize, Clone)]
-    pub struct FrameCounters {
-        pub rx_frames: u32,//The number of LoRaWAN frames that has received by the gateway from the end-device(Uplink messages)
-        pub fw_frames: u32,//--> The number of LoRaWAN frames transmitted by the GW to the Network Server using the standard LoRaWAN Specification during the reporting period.
-        pub tx_ho_frames: u32,//--> The number of frames the GW forwarded to other GWs using the handover procedure during the reporting period.
-        pub rx_ho_frames: u32,//--> The number of frames  received by the GW by the other GWs using the handover procedure
-        pub proc_frames: u32,//--> The number of frames the GW locally processed, i.e. the number of frames the Parser Module published to the process topic.
-    }
-    impl Default for FrameCounters {
-        fn default() -> Self {
-            FrameCounters {
-                rx_frames: 0,
-                fw_frames: 0,
-                tx_ho_frames: 0,
-                rx_ho_frames: 0,
-                proc_frames: 0,
-            }
-        }
-    }
-    // A thread-safe, global mutable instance
-    pub static FRAME_COUNTERS: Lazy<Mutex<FrameCounters>> = Lazy::new(|| {
-        Mutex::new(FrameCounters::default())
-    });
     #[derive(Debug, Serialize, Deserialize)]
     pub struct MqttVariables {
         pub broker_url: String,
@@ -94,26 +66,7 @@ pub(crate) mod e2l_mqtt_client {
         pub size: u32,
         pub data: String,
     }
-
-    #[derive(Debug, Serialize, Deserialize, Clone)]
-    pub struct GwStats {
-        pub gw_id: String,
-        pub frame: FrameCounters,
-        pub mem_available: u64,
-        pub mem_usage: u64,
-        pub mem_usage_percentage: u64,
-        pub swp_usage_percentage:u64,
-        pub ntwk_down:i32,
-        pub ntwk_up:i32,
-        pub cpu_usage: f32,
-        pub cpu_usage_percentage:f32,
-    }
-    #[derive(Debug, Serialize)]
-    pub struct CombinedStats{
-        pub gw_stats: GwStats,
-        pub devices_stats: HashMap<String, DeviceStats>
-    }
-
+    
     #[derive(Debug, Serialize, Deserialize)]
     pub struct NewAssignedDevice {
         pub dev_eui: String,
@@ -476,7 +429,6 @@ pub(crate) mod e2l_mqtt_client {
                 while let Some(msg_opt) = strm.next().await {
                     match msg_opt {
                         Some(msg) => {
-                            println!("INFO: WELCOME TO THE EMQX COMMANDS:))))");
                             let payload_str = msg.payload_str().to_string();
                             let topic = msg.topic();
                             // Split topic at /
