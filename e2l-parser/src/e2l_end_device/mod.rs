@@ -90,6 +90,28 @@ pub(crate) mod e2l_end_device{
     pub struct CombinedStats{
         pub gw_stats: GwStats,
         pub devices_stats: HashMap<String, DeviceStats>
+        //Controlling Five frame counters
+        /*new_rx_frame
+        new_rx_ho_frame
+        new_proc_frame
+        new_fw_frame
+        new_tx_ho_frame*/
+    }
+
+    trait  Frames {
+       fn get(&self);
+       fn reset(&mut self);
+        
+    }
+    impl Frames for CombinedStats {
+        fn get(&self) {
+            todo!("Implement get() to control frame counters later")
+        }
+        
+        fn reset(&mut self) {
+            todo!("Implement reset() to reset frame counters later")
+        }
+        
     }
 
 
