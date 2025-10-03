@@ -201,6 +201,7 @@ pub(crate) mod e2l_module {
                             Some(CombinedStats {
                                 gw_stats: gw_stats_obj,
                                 devices_stats: device_stats,
+                                frames:todo!()
                             })
                         };
 
@@ -792,6 +793,7 @@ pub(crate) mod e2l_module {
 
                                             let mut counters = FRAME_COUNTERS.lock().unwrap();
                                             counters.rx_frames += 1;
+
 
                                             let will_send_option = self
                                                 .handle_data_payload(

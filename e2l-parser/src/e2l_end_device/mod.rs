@@ -3,10 +3,6 @@ pub(crate) mod e2l_end_device{
     use std::collections::HashSet;
     use ordered_float::OrderedFloat;
     use std::collections::HashMap;
-
-
-
-
     use serde_derive::Deserialize;
     use serde_derive::Serialize;
     use crate::lorawan_structs::lora_structs::RxpkContent;
@@ -66,6 +62,11 @@ pub(crate) mod e2l_end_device{
     
     #[derive(Debug, Clone, Default)]
     //To access a hash map inside mutex
+    // DeviceMap
+    // └── inner (public field)
+    //     └── Arc (shared across threads)
+    //         └── Mutex (safe mutable access)
+    //             └── HashMap<String, DevicePks> (actual data)
     pub struct DeviceMap {
         pub inner: Arc<Mutex<HashMap<String, DevicePks>>>,
     }
@@ -89,29 +90,35 @@ pub(crate) mod e2l_end_device{
     #[derive(Debug, Serialize, Clone)]
     pub struct CombinedStats{
         pub gw_stats: GwStats,
-        pub devices_stats: HashMap<String, DeviceStats>
-        //Controlling Five frame counters
-        /*new_rx_frame
-        new_rx_ho_frame
-        new_proc_frame
-        new_fw_frame
-        new_tx_ho_frame*/
+        pub devices_stats: HashMap<String, DeviceStats>,
+        pub frames: FrameCounters
     }
-
-    trait  Frames {
-       fn get(&self);
-       fn reset(&mut self);
-        
-    }
-    impl Frames for CombinedStats {
-        fn get(&self) {
-            todo!("Implement get() to control frame counters later")
+    impl CombinedStats {
+        pub fn record_rx_frame(&mut self, dev_addr: String) -> u32 {
+            let mut rx_frame = self.frames.rx_frames;
+            rx_frame += 1;
+            rx_frame
         }
-        
-        fn reset(&mut self) {
-            todo!("Implement reset() to reset frame counters later")
+        pub fn record_rx_ho_frame(&self, dev_addr: String) -> u32 {
+            let mut rx_ho_frame = self.frames.rx_ho_frames;
+            rx_ho_frame += 1;
+            rx_ho_frame
         }
-        
+        pub fn record_fw_frame(&self, dev_addr: String) -> u32{
+            let mut fw_frame = self.frames.fw_frames;
+            fw_frame += 1;
+            fw_frame
+        }
+        pub fn record_proc_frame(&self, dev_addr: String) -> u32{
+            let mut proc_frame = self.frames.proc_frames;
+            proc_frame += 1;
+            proc_frame
+        }
+        pub fn record_tx_ho_frame(&self, dev_addr: String) -> u32{
+            let mut tx_ho_frame = self.frames.tx_ho_frames;
+            tx_ho_frame += 1;
+            tx_ho_frame
+        }
     }
 
 
