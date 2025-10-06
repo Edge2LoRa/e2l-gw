@@ -417,7 +417,6 @@ dependencies = [
  "lazy_static",
  "lorawan",
  "lorawan-encoding",
- "once_cell",
  "ordered-float",
  "p256",
  "paho-mqtt",

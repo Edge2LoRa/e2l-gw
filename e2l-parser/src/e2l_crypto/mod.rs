@@ -10,7 +10,6 @@ pub(crate) mod e2l_crypto {
     // MUTEX
     use std::sync::{Arc, Mutex, MutexGuard};
     // Crypto
-    use gethostname::gethostname;
     use p256;
     use serde_json;
     use std::ops::Mul;
@@ -28,6 +27,7 @@ pub(crate) mod e2l_crypto {
     use sha2::Digest;
     use sha2::Sha256;
 
+    use crate::e2l_end_device::e2l_end_device::CombinedStats;
     use crate::e2l_mqtt_client::e2l_mqtt_client::{
         MqttJson, UnassociatedMqttJson,
     };
@@ -45,11 +45,12 @@ pub(crate) mod e2l_crypto {
 
     pub struct E2LCrypto {
         pub gw_id: String,
-        pub private_key: Option<P256SecretKey<p256::NistP256>>,
-        pub public_key: Option<P256PublicKey<p256::NistP256>>,
+        pub _private_key: Option<P256SecretKey<p256::NistP256>>,
+        pub _public_key: Option<P256PublicKey<p256::NistP256>>,
         pub compressed_public_key: Option<Box<[u8]>>,
         pub active_directory_mutex: Arc<Mutex<E2LActiveDirectory>>,
         is_active: Arc<Mutex<bool>>,
+        stats:Arc<Mutex<CombinedStats>>
     }
 
     struct KeyInfo {
@@ -98,15 +99,16 @@ pub(crate) mod e2l_crypto {
         /*
            @brief: This function return a new E2LCrypto object
         */
-        pub fn new(hostname: String) -> Self {
+        pub fn new(hostname: String,stats:Arc<Mutex<CombinedStats>>) -> Self {
             let key_info = Self::generate_ecc_keys();
             let return_value = E2LCrypto {
                 gw_id: hostname,
-                private_key: key_info.private_key,
-                public_key: key_info.public_key,
+                _private_key: key_info.private_key,
+                _public_key: key_info.public_key,
                 compressed_public_key: key_info.compressed_public_key,
                 active_directory_mutex: Arc::new(Mutex::new(E2LActiveDirectory::new())),
                 is_active: Arc::new(Mutex::new(false)),
+                stats:stats
             };
 
             return return_value;
@@ -175,7 +177,7 @@ pub(crate) mod e2l_crypto {
 
             // Compute the Edge Session Key
             let edge_s_key_pub_key: P256PublicKey<p256::NistP256> =
-                Self::_scalar_point_multiplication(self.private_key.clone().unwrap(), g_as_ed)
+                Self::_scalar_point_multiplication(self._private_key.clone().unwrap(), g_as_ed)
                     .unwrap();
             let edge_s_key = edge_s_key_pub_key.as_affine().x();
             let edge_s_key_bytes: Vec<u8> = edge_s_key.to_vec();
@@ -210,7 +212,7 @@ pub(crate) mod e2l_crypto {
             println!("Added dev addr: {:?} to active directory.", dev_addr);
 
             let g_gw_ed = Self::_scalar_point_multiplication(
-                self.private_key.clone().unwrap(),
+                self._private_key.clone().unwrap(),
                 dev_public_key,
             )
             .unwrap();
@@ -446,13 +448,16 @@ pub(crate) mod e2l_crypto {
                 rssi: payload.rssi,
                 lsnr: payload.lsnr,
                 size: payload.size,
-                data: payload.data
+                data: payload.data,
             };
 
             let data: Vec<u8> = general_purpose::STANDARD.decode(&packet.data).unwrap();
             let parsed_data = parse(data.clone());
             match parsed_data {
                 Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
+                    let mut stats= self.stats.lock().expect("Could not lock!");
+                    stats.record_rx_ho_frame(dev_addr.clone());
+                    std::mem::drop(stats);
                     let mqtt_payload_option = self.get_json_mqtt_payload(
                         dev_addr.clone(),
                         payload.fcnt,
@@ -463,12 +468,15 @@ pub(crate) mod e2l_crypto {
                     );
                     match mqtt_payload_option {
                         Some(mqtt_payload) => {
+                            let mut stats= self.stats.lock().expect("Could not lock!");
+                            stats.record_proc_frame(dev_addr.clone());
+                            std::mem::drop(stats);
                             let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                 .unwrap_or_else(|_| "Error".to_string());
                             return Some(mqtt_payload_str);
                         }
                         None => {
-                            // println!("Not processing: Error while parsing JSON to send to Process topic.");
+                            println!("Not processing: Error while parsing JSON to send to Process topic.");
                             return None;
                         }
                     }
@@ -482,12 +490,6 @@ pub(crate) mod e2l_crypto {
                     return None;
                 }
             }
-        }
-    }
-
-    impl Default for E2LCrypto {
-        fn default() -> Self {
-            Self::new(gethostname().into_string().unwrap())
         }
     }
 }

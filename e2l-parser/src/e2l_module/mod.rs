@@ -9,15 +9,14 @@ pub(crate) mod e2l_module {
         filters_json_structs::filter_json::EnvVariables,
         lorawan_structs::ForwardInfo,
     };
-    use crate::e2l_end_device::e2l_end_device::{CombinedStats, DeviceMap, DevicePks, DeviceStats, FrameCounters, GwStats, FRAME_COUNTERS};
+    use crate::e2l_end_device::e2l_end_device::CombinedStats;
     use gethostname::gethostname;
     use lorawan_encoding::default_crypto::DefaultFactory;
     use lorawan_encoding::parser::{
         parse, AsPhyPayloadBytes, DataHeader, DataPayload, EncryptedDataPayload, PhyPayload,
     };
     use rand::Rng;
-    use std::collections::{HashMap, HashSet};  
-    use ordered_float::OrderedFloat;
+    use std::collections::HashMap;  
     use std::time::{Duration};
     use sysinfo::{CpuExt, System, SystemExt};
     // use std::io::Read;
@@ -62,7 +61,7 @@ pub(crate) mod e2l_module {
         hostname: Arc<Mutex<String>>,
         fwinfo: Arc<Mutex<ForwardInfo>>,
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
-        shared_device_map: Arc<Mutex<Option<DeviceMap>>>,
+        stats: Arc<Mutex<CombinedStats>>
     }
     // STATIC FUNCTION
     impl E2LModule {
@@ -128,8 +127,6 @@ pub(crate) mod e2l_module {
     // PRIVATE FUNCTIONS
     impl E2LModule {
         async fn start_stats_thread(&self) {
-            let combined_stats = Arc::new(Mutex::new(None::<CombinedStats>));
-
             Self::info(format!("Starting System counter stats thread!"));
             let hostname_mut = self.hostname.lock().expect("Could not lock!");
             let hostname = hostname_mut.clone();
@@ -138,22 +135,24 @@ pub(crate) mod e2l_module {
             let hostname_mut = self.hostname.lock().expect("Could not lock!");
             let hostname = hostname.clone();
             std::mem::drop(hostname_mut);
-            let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
+            let stats_mut =Arc::clone(&self.stats);
 
-            let device_map_ref = Arc::clone(&self.shared_device_map);
+            let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
+            let sleep_timer = dotenv::var("SLEEP_TIMER").unwrap().parse::<u64>().unwrap();
+
+
 
             thread::spawn(move || {
                     let mut s: System = System::new_all();
             
                     Self::info(format!("System counter stats thread started!"));
 
-                    let _mqtt_client = E2LMqttClient::new(
+                    let mqtt_client = E2LMqttClient::new(
                         hostname.clone(),
                         "sys_stats_publisher".to_string(),
                         mqtt_variables,
-                        e2l_crypto_clone_publisher,
+                        e2l_crypto_clone_publisher
                     );
-                    let rt = tokio::runtime::Runtime::new().unwrap();
 
                     loop {
                         s.refresh_memory();
@@ -168,187 +167,29 @@ pub(crate) mod e2l_module {
                         s.refresh_cpu(); // Refreshing CPU information.
                         let used_cpu = s.global_cpu_info().cpu_usage();
                         Self::debug(format!("{}%", used_cpu));
-                        let counters_snapshot = {
-                            let counters = FRAME_COUNTERS.lock().unwrap();
-                            counters.clone() 
-                        };
-                        let gw_stats_obj = GwStats {
-                            gw_id: hostname.clone(),
-                            frame: FrameCounters {
-                                rx_frames: counters_snapshot.rx_frames,
-                                fw_frames: counters_snapshot.fw_frames,
-                                tx_ho_frames: counters_snapshot.tx_ho_frames,
-                                rx_ho_frames: counters_snapshot.rx_ho_frames,
-                                proc_frames: counters_snapshot.proc_frames,
-                            },
-                            mem_usage: s.used_memory(),
-                            mem_usage_percentage: s.used_memory()*100,
-                            mem_available: s.available_memory(),
-                            ntwk_down: down_kb,
-                            ntwk_up: up_kb,
-                            cpu_usage: used_cpu,
-                            cpu_usage_percentage: used_cpu*100.0,
-                            swp_usage_percentage: used_swap,
-                        };
+                        let mut stats= stats_mut.lock().expect("Could not lock");
+                        stats.gw_stats.mem_usage= s.used_memory();
+                        stats.gw_stats.mem_usage_percentage= s.used_memory()*100;
+                        stats.gw_stats.mem_available= s.available_memory();
+                        stats.gw_stats.ntwk_down= down_kb;
+                        stats.gw_stats.ntwk_up= up_kb;
+                        stats.gw_stats.cpu_usage= used_cpu;
+                        stats.gw_stats.cpu_usage_percentage= used_cpu*100.0;
+                        stats.gw_stats.swp_usage_percentage= used_swap;
 
-                        let merge_stats = {
-                            let sample_device_map = device_map_ref.lock().unwrap();
-                            let device_stats = if let Some(ref device_map) = *sample_device_map {
-                                rt.block_on(E2LModule::calculate_device_stats(device_map.clone()))
-                            } else {
-                                HashMap::new() 
-                            };
-                            Some(CombinedStats {
-                                gw_stats: gw_stats_obj,
-                                devices_stats: device_stats,
-                                frames:todo!()
-                            })
-                        };
-
-                        // Update shared combined stats
-                        if let Some(combined) = merge_stats {
-                            let mut lock = combined_stats.lock().unwrap();
-                            *lock = Some(combined);
-
-                            if let Some(ref stored) = *lock {
-                                println!("CombinedStats stored: {:#?}", stored);
-                            } else {
-                                println!("CombinedStats is somehow None after storing!");
-                            }
-                        }else {
-                            println!("You Dont have the combined status!!!!!");
-                        }
-                        
-                        thread::sleep(Duration::from_secs(5));
+                        let final_stats= stats.clone();
+                        stats.reset();
+                        std::mem::drop(stats);
+                        let mqtt_payload_str = serde_json::to_string(&final_stats)
+                                .unwrap_or_else(|_| "Error".to_string());
+                        let _= mqtt_client.publish_to_control("stats".to_string(), mqtt_payload_str);
+                        println!("FINAL STATS:::{:?}",final_stats);
+                        thread::sleep(Duration::from_secs(sleep_timer));
                     }
                
                 
             });
-            // Arc::clone(&combined_stats);
 
-        }
-        
-        async fn collect_packets_for_devices(&self, all_packets: Vec<RxpkContent>) -> DeviceMap {
-            let device_map = DeviceMap::new(); 
-
-            for rxpk in all_packets {
-                        let dev_eui = hex::encode(&rxpk.data[0..8]);
-                        let dev_addr = hex::encode(&rxpk.data[8..12]);
-                        let device_key = dev_addr.clone();
-                        
-                        let mut map = device_map.inner.lock().unwrap();
-
-                        map.entry(device_key.clone())
-                            .and_modify(|device| {
-                                device.rxpk.push(rxpk.clone());
-                                device.modu_set.insert(rxpk.modu.clone());
-                                device.freq_set.insert(OrderedFloat(rxpk.freq));
-
-                                if let Some(chan) = rxpk.chan {
-                                    device.chan_set.insert(chan);
-                                }
-
-                                if let Some((sf, bw)) = DevicePks::parse_datr(&rxpk.datr) {
-                                    device.sf_set.insert(sf);
-                                    device.bw_set.insert(bw);
-                                } else {
-                                    println!("Invalid datr format: {}", rxpk.datr);
-                                }
-                            })
-                            .or_insert(DevicePks {
-                                dev_eui,
-                                dev_addr,
-                                rxpk: vec![rxpk.clone()],
-                                modu_set: {
-                                    let mut m = HashSet::new();
-                                    m.insert(rxpk.modu.clone());
-                                    m
-                                },
-                                freq_set: {
-                                    let mut f = HashSet::new();
-                                    f.insert(OrderedFloat(rxpk.freq));
-                                    f
-                                },
-                                chan_set: {
-                                    let mut ch = HashSet::new();
-                                    if let Some(chan) = rxpk.chan {
-                                        ch.insert(chan);
-                                    }
-                                    ch
-                                },
-                                sf_set: {
-                                    let mut sf = HashSet::new();
-                                    if let Some((parsed_sf, _)) = DevicePks::parse_datr(&rxpk.datr) {
-                                        sf.insert(parsed_sf);
-                                    }
-                                    sf
-                                },
-                                bw_set: {
-                                    let mut bw = HashSet::new();
-                                    if let Some((_, parsed_bw)) = DevicePks::parse_datr(&rxpk.datr) {
-                                        bw.insert(parsed_bw);
-                                    }
-                                    bw
-                                },
-                            });
-                        
-                            {
-                                let mut shared = self.shared_device_map.lock().unwrap();
-                                *shared = Some(device_map.clone()); 
-                            }
-
-            }
-
-            device_map
-        }
-        pub async fn calculate_device_stats(device_map: DeviceMap) -> HashMap<String,DeviceStats> {
-            let mut stats_list: HashMap<String, DeviceStats> = HashMap::new();
-            let map = device_map.inner.lock().unwrap();
-
-            
-            for (dev_addr, device) in map.iter() {            
-                let (avg_rssi, avg_snr, avg_payload_size) = if device.rxpk.len() == 1 {
-                    let packet = &device.rxpk[0];
-                    let rssi = packet.rssi.unwrap_or(0) as i32;
-                    let snr = packet.lsnr.unwrap_or(0.0) as f32;
-                    let payload_size = packet.data.len() as f32;
-
-                    // println!("Device {} has 1 packet — using exact values.", dev_addr);
-                    (rssi, snr, payload_size)
-                }else{
-                    let rssi = match device.avg_rssi() {
-                        Some(val) => val,
-                        None => {
-                            println!("Skipping device {} — no valid RSSI avg.", dev_addr);
-                            continue;
-                        }
-                    } as i32;
-
-                    let snr = device.avg_snr().unwrap_or(0.0) as f32;
-                    let payload_size = device.avg_payload_size().unwrap_or(0.0) as f32;
-
-                    (rssi, snr, payload_size)
-                }; 
-                
-                let counters = FRAME_COUNTERS.lock().unwrap();
-                let stats = DeviceStats {
-                    dev_eui: device.dev_eui.clone(),
-                    frames:FrameCounters { rx_frames: counters.rx_frames, fw_frames: counters.fw_frames, tx_ho_frames: counters.tx_ho_frames, rx_ho_frames:counters.rx_ho_frames, proc_frames: counters.proc_frames },
-                    fcnt: 1, 
-                    dev_addr: device.dev_addr.clone(), 
-                    avg_rssi: avg_rssi.into(),
-                    avg_snr: avg_snr.into(),
-                    avg_payload_size: avg_payload_size.into(),
-                    modu: device.modu_set.clone(),
-                    freq: device.freq_set.clone(),
-                    chan: device.chan_set.clone(),
-                    sf:device.sf_set.clone(),
-                    bw:device.bw_set.clone()
-                };
-                stats_list.insert(dev_addr.to_string(), stats);
-                // let stats_list_str = serde_json::to_string(&stats_list).unwrap();
-            }
-            stats_list
         }
 
         async fn handle_data_payload(
@@ -405,8 +246,9 @@ pub(crate) mod e2l_module {
                     ///////////////////////////////////////////////////////////////////////
                     match mqtt_payload_option {
                         Some(mqtt_payload) => {
-                            let mut counters = FRAME_COUNTERS.lock().unwrap();
-                            counters.proc_frames += 1;
+                            let mut stats= self.stats.lock().expect("Could not lock!");
+                            stats.record_proc_frame(dev_addr_string.clone());
+                            std::mem::drop(stats);
                             let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                 .unwrap_or_else(|_| "Error".to_string());
                             mqtt_client
@@ -432,32 +274,36 @@ pub(crate) mod e2l_module {
                                     fcnt,
                                     packet,
                                     gwmac.clone(),
-                                );
+                                ); 
                             std::mem::drop(e2l_crypto);
                             match mqtt_payload_option {
                                 Some(mqtt_payload) => {
-                                    let mut counters = FRAME_COUNTERS.lock().unwrap();
                                     let gw_id = mqtt_payload.gw_id.clone();
                                     let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                         .unwrap_or_else(|_| "Error".to_string());
                                     mqtt_client.publish_to_handover(gw_id, mqtt_payload_str);
-                                    counters.proc_frames += 1;
+                                    let mut stats = self.stats.lock().expect("Could not lock!");
+                                    stats.record_tx_ho_frame(dev_addr_string.clone());
+                                    std::mem::drop(stats);
                                     will_send = false;
                                 }
-                                None => {}
+                                None => {
+                                    println!("There are some problems at this point!!{:?}", mqtt_payload_option);
+                                }
                             }
                         }
                         port if port == DEFAULT_APP_PORT => {
                             println!("THAT IS THE NUMBER OF PORT:{}",port);
                             let fwinfo = self.fwinfo.lock().expect("Could not lock!");
-                            let mut counters = FRAME_COUNTERS.lock().unwrap();
                             match fwinfo.forward_protocol {
                                 ForwardProtocols::UDP => {
                                     Self::debug(format!(
                                         "Forwarding to NS: {:x?}",
                                         fwinfo.forward_host.clone()
                                     ));
-                                    counters.fw_frames += 1;
+                                    let mut stats= self.stats.lock().expect("Could not lock!");
+                                    stats.record_fw_frame(dev_addr_string.clone());
+                                    std::mem::drop(stats);
                                 } // _ => panic!("Forwarding protocol not implemented!"),
                             }
 
@@ -503,16 +349,24 @@ pub(crate) mod e2l_module {
                 }
             }
 
+            
+             /* 
+             * STATS  
+             */
+            let stats= CombinedStats::default();
+            let stats_arc = Arc::new(Mutex::new(stats));
+            let stats_crypto=Arc::clone(&stats_arc);
             /*
              * E2LCrypto
              */
-            let e2l_crypto = E2LCrypto::new(hostname.clone());
+            let e2l_crypto = E2LCrypto::new(hostname.clone(),stats_crypto);
             let e2l_crypto_arc = Arc::new(Mutex::new(e2l_crypto));
+
             E2LModule {
                 hostname: Arc::new(Mutex::new(hostname.clone())),
                 fwinfo: Arc::new(Mutex::new(fwinfo)),
                 e2l_crypto: e2l_crypto_arc,
-                shared_device_map:Arc::new(Mutex::new(None)),
+                stats:stats_arc
             }
         }
 
@@ -534,7 +388,7 @@ pub(crate) mod e2l_module {
                 hostname_publisher,
                 "publisher".to_string(),
                 mqtt_variables,
-                e2l_crypto_clone_publisher,
+                e2l_crypto_clone_publisher     
             );
             /********************
              * CREATE AS BRIDGE *
@@ -550,7 +404,7 @@ pub(crate) mod e2l_module {
                     hostname_control_client,
                     "control_client".to_string(),
                     mqtt_variables,
-                    e2l_crypto_clone_control_client,
+                    e2l_crypto_clone_control_client
                 );
                 let rt =
                     tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
@@ -562,7 +416,7 @@ pub(crate) mod e2l_module {
                     hostname_handover_client,
                     "handover_client".to_string(),
                     mqtt_variables,
-                    e2l_crypto_clone_handover_client,
+                    e2l_crypto_clone_handover_client
                 );
                 let rt =
                     tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
@@ -572,7 +426,7 @@ pub(crate) mod e2l_module {
             /***********************
              * START STATS THREAD
              ***********************/
-             let _combined_stats = self.start_stats_thread().await;
+            self.start_stats_thread().await;
 
             /***********************
              * SEND PUB INFO TO AS *
@@ -631,7 +485,6 @@ pub(crate) mod e2l_module {
                 ));
                 loop {
                     let (dest, buf) = main_receiver.recv().unwrap();
-                    //tx_frame increase
                     let to_send = buf.as_slice();
                     responder.send_to(to_send, dest).expect(&format!(
                         "Failed to forward response from upstream server to client {}",
@@ -645,10 +498,6 @@ pub(crate) mod e2l_module {
              *************/
             let mut client_map = HashMap::new();
             let mut buf = [0; 64 * 1024];
-            // let mut client_map = Arc::new(Mutex::new(HashMap::new()));
-            // let mut buf = [0u8; 1024];
-            // println!("Buf{:?}", buf);
-            
 
             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock");
             e2l_crypto.set_active(true);
@@ -660,7 +509,6 @@ pub(crate) mod e2l_module {
                 let mut remove_existing = false;
                 loop {
                     Self::debug(format!("Received packet from client {}", src_addr)); 
-                    //rx_frame increase
                     let mut ignore_failure = true;
                     let client_id = format!("{}", src_addr);
 
@@ -748,8 +596,7 @@ pub(crate) mod e2l_module {
                     let to_send = buf[..num_bytes].to_vec();
 
                     let mut will_send = true;
-                    let mut packets: Vec<RxpkContent> = Vec::new();
-                    
+
                     match &to_send[3] {
                         // Scritto da Copilot: Match a single value to a single value to avoid a match on a slice of a single value and a single value slice. This is a bit of a hack, but it works. I'm sorry. I'm sorry. I'm sorry.
                         0 => {
@@ -781,19 +628,18 @@ pub(crate) mod e2l_module {
                                     Self::debug(format!("Extracted GwMac {:x?}", gwmac));
                                     
                                     let parsed_data = parse(data.clone());
-                                    if data.len() < 26 {
-                                         println!("Invalid data length: {}, skipping packet", data.len());
-                                         continue;
-                                    }
                                     match parsed_data {
                                         Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
-                                            //To collect only valid packets not join request
-                                            let packet_copy = packet.clone();
-                                            packets.push(packet_copy);
+                                            let fhdr= phy.fhdr();
+                                            let dev_addr_vec = fhdr.dev_addr().as_ref().to_vec();
+                                            let aux: Vec<u8> = dev_addr_vec.clone().into_iter().rev().collect();
+                                            let strs: Vec<String> = aux.iter().map(|b| format!("{:02X}", b)).collect();
+                                            let dev_addr_string = strs.join("");
 
-                                            let mut counters = FRAME_COUNTERS.lock().unwrap();
-                                            counters.rx_frames += 1;
 
+                                            let mut stats= self.stats.lock().expect("Could not lock");
+                                            stats.record_rx_frame(dev_addr_string,packet.clone());
+                                            std::mem::drop(stats);
 
                                             let will_send_option = self
                                                 .handle_data_payload(
@@ -835,7 +681,6 @@ pub(crate) mod e2l_module {
                                         }
                                     }
                                 }
-                                let _device_map = self.collect_packets_for_devices(packets).await;  
                             }
                             
                             

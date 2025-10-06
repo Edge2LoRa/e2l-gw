@@ -29,7 +29,7 @@ pub(crate) mod lora_structs {
         pub rssi: Option<i32>,
         pub lsnr: Option<f32>,
         pub size: u32,
-        pub data: String,
+        pub data: String
     }
   
     

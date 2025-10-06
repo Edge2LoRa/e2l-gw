@@ -9,7 +9,6 @@ pub(crate) mod e2l_mqtt_client {
     use std::sync::{Arc, Mutex};
 
     use crate::e2l_crypto::e2l_crypto::E2LCrypto;
-    use crate::e2l_end_device::e2l_end_device::FRAME_COUNTERS;
     use paho_mqtt as mqtt;
     use reqwest::Client;
     use std::time::Duration;
@@ -102,7 +101,7 @@ pub(crate) mod e2l_mqtt_client {
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
         api_endpoint: String,
         api_username: String,
-        api_password: String,
+        api_password: String
     }
 
     /*
@@ -284,7 +283,7 @@ pub(crate) mod e2l_mqtt_client {
             gw_id: String,
             client_id: String,
             mqtt_variables: MqttVariables,
-            e2l_crypto: Arc<Mutex<E2LCrypto>>,
+            e2l_crypto: Arc<Mutex<E2LCrypto>>
         ) -> Self {
             let host = format!(
                 "{}:{}",
@@ -394,9 +393,6 @@ pub(crate) mod e2l_mqtt_client {
                             std::mem::drop(e2l_crypto);
                             match ret {
                                 Some(payload) => {
-                                    let mut counters = FRAME_COUNTERS.lock().unwrap();
-                                    counters.rx_ho_frames += 1;
-                                    counters.proc_frames +=1;
                                     self.publish_to_process(payload).await;
                                 },
                                 None => (),
