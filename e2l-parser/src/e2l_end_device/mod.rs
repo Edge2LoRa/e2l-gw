@@ -102,10 +102,10 @@ pub(crate) mod e2l_end_device{
                     let packet_size:f64=packet.size as f64;
                     dev_stats.avg_payload_size=((dev_stats.avg_payload_size * rx_frames) + packet_size)/(rx_frames+1.0);
                     //avg rssi
-                    let rssi=packet.rssi.unwrap() as f64;
+                    let rssi=packet.rssi.unwrap_or(0) as f64;
                     dev_stats.avg_rssi=((dev_stats.avg_rssi * rx_frames) + rssi)/(rx_frames+1.0);
                     //avg snr
-                    let snr:f64 =packet.lsnr.unwrap() as f64;
+                    let snr:f64 =packet.lsnr.unwrap_or(0.0) as f64;
                     dev_stats.avg_snr =((dev_stats.avg_snr * rx_frames) + snr)/(rx_frames+1.0);
 
                     dev_stats.modu.insert(packet.modu);
@@ -123,8 +123,8 @@ pub(crate) mod e2l_end_device{
                     let mut new_device_stats = DeviceStats::default();
 
                     new_device_stats.avg_payload_size=packet.size as f64;
-                    new_device_stats.avg_rssi=packet.rssi.unwrap() as f64;
-                    new_device_stats.avg_snr=packet.lsnr.unwrap() as f64;
+                    new_device_stats.avg_rssi=packet.rssi.unwrap_or(0) as f64;
+                    new_device_stats.avg_snr=packet.lsnr.unwrap_or(0.0) as f64;
                     new_device_stats.modu.insert(packet.modu);
                     new_device_stats.freq.insert(OrderedFloat(packet.freq));
                     new_device_stats.chan.insert(packet.chan.unwrap() as u32);
