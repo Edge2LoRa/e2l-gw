@@ -7,6 +7,7 @@ pub(crate) mod e2l_mqtt_client {
     use std::collections::HashSet;
     use std::env;
     use std::sync::{Arc, Mutex};
+    use base64::Engine as _;
 
     use crate::e2l_crypto::e2l_crypto::E2LCrypto;
     use paho_mqtt as mqtt;
@@ -114,6 +115,13 @@ pub(crate) mod e2l_mqtt_client {
         pub pub_key: Vec<u8>,
     }
 
+    #[derive(Debug, Serialize, Deserialize)]
+    struct E2GWPubInfo {
+        dev_eui: String,
+        dev_addr: String,
+        g_as_ed: String,
+        dev_public_key: String,
+    }
     /*
        MQTT BRIDGE CONFIGURATION
     */
@@ -573,6 +581,35 @@ pub(crate) mod e2l_mqtt_client {
                                 }
                                 "aggregation_completed" => {
                                     println!("INFO: Command 'aggregation_completed' received");
+                                }
+                                "edge_join_info" => {
+                                    println!("INFO: Command 'edge_join_info' received");
+                                    
+                                    let dev_pub_info: Result<E2GWPubInfo, _> = serde_json::from_str(&payload_str);
+                                    println!("INFO: Parsed JSON for edge_join_info: {:?}", dev_pub_info);
+
+                                    match dev_pub_info {
+                                        Ok(info) => {
+                                            // Call your existing handler
+                                            let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
+                                            let g_gw_ed= e2l_crypto.handle_ed_pub_info(
+                                                info.dev_eui,
+                                                info.dev_addr,
+                                                hex::decode(&info.g_as_ed).expect("Invalid hex for g_as_ed"),
+                                                base64::engine::general_purpose::STANDARD
+                                                    .decode(&info.dev_public_key)
+                                                    .expect("Invalid base64 for dev_public_key"),
+                                            );
+
+                                            let response_string = 
+                                                serde_json::to_string(&g_gw_ed).expect("Failed to serialize g_gw_ed");
+                                            self.publish_to_control("edge_join_response".to_string(), response_string).await;
+                                            std::mem::drop(e2l_crypto);
+                                        }
+                                        Err(_) => {
+                                            println!("ERROR: Invalid JSON for edge_join_info");
+                                        }
+                                    }
                                 }
                                 _ => {
                                     println!("INFO: Unknown command received");

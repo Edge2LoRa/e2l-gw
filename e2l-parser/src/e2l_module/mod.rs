@@ -256,7 +256,7 @@ pub(crate) mod e2l_module {
                                 .await;
                         }
                         _ => {
-                            //println!("Error processing E2ED");
+                            println!("Error processing E2ED");
                             return None;
                         }
                     }
@@ -355,7 +355,7 @@ pub(crate) mod e2l_module {
              */
             let stats= CombinedStats::default();
             let stats_arc = Arc::new(Mutex::new(stats));
-            let stats_crypto=Arc::clone(&stats_arc);
+            let stats_crypto= Arc::clone(&stats_arc);
             /*
              * E2LCrypto
              */

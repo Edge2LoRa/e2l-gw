@@ -138,7 +138,7 @@ pub(crate) mod e2l_crypto {
            @param dev_public_key_compressed: the compressed public key of the device
            @return: the g_gw_ed to send to the AS
         */
-        pub fn _handle_ed_pub_info(
+        pub fn handle_ed_pub_info(
             &self,
             dev_eui: String,
             dev_addr: String,
@@ -476,7 +476,7 @@ pub(crate) mod e2l_crypto {
                             return Some(mqtt_payload_str);
                         }
                         None => {
-                            //println!("Not processing: Error while parsing JSON to send to Process topic.");
+                            println!("mqtt_payload doesnt have value!");
                             return None;
                         }
                     }
