@@ -1,22 +1,23 @@
+pub mod traits;
 pub(crate) mod e2l_module {
-    use crate::e2l_crypto::e2l_crypto::e2l_crypto::{FW_FRAMES, PROC_FRAMES, RX_FRAMES, TX_FRAMES};
-    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo};
-    use crate::e2l_mqtt_client::e2l_mqtt_client::e2l_mqtt_client::{GwStats, MqttVariables};
-    use crate::lorawan_structs::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
-    use crate::lorawan_structs::lorawan_structs::ForwardProtocols;
+    use crate::e2l_mqtt_client::e2l_mqtt_client::{E2LMqttClient, GWPubInfo};
+    use crate::e2l_mqtt_client::e2l_mqtt_client::{MqttVariables};
+    use crate::lorawan_structs::lora_structs::{Rxpk, RxpkContent};
+    use crate::lorawan_structs::ForwardProtocols;
     use crate::{
-        e2l_crypto::e2l_crypto::e2l_crypto::E2LCrypto,
-        json_structs::filters_json_structs::filter_json::EnvVariables,
-        lorawan_structs::lorawan_structs::ForwardInfo,
+        e2l_crypto::e2l_crypto::E2LCrypto,
+        filters_json_structs::filter_json::EnvVariables,
+        lorawan_structs::ForwardInfo,
     };
+    use crate::e2l_end_device::e2l_end_device::CombinedStats;
     use gethostname::gethostname;
     use lorawan_encoding::default_crypto::DefaultFactory;
     use lorawan_encoding::parser::{
         parse, AsPhyPayloadBytes, DataHeader, DataPayload, EncryptedDataPayload, PhyPayload,
     };
     use rand::Rng;
-    use std::collections::HashMap;
-    use std::time::Duration;
+    use std::collections::HashMap;  
+    use std::time::{Duration};
     use sysinfo::{CpuExt, System, SystemExt};
     // use std::io::Read;
     use std::str;
@@ -27,8 +28,11 @@ pub(crate) mod e2l_module {
     use base64::{engine::general_purpose, Engine as _};
 
     // RPC
-
+    use lazy_static::lazy_static;
     use std::{net::UdpSocket, sync::mpsc::channel, thread};
+
+    //Network
+    use super::traits::NtwkStats;
 
     /********************
      * STATIC VARIABLES *
@@ -36,11 +40,9 @@ pub(crate) mod e2l_module {
     const TIMEOUT: u64 = 3 * 60 * 100;
     static mut DEBUG: bool = false;
 
-    // LORAWAN PORTS
+    // PORTS
     static DEFAULT_APP_PORT: u8 = 2;
-    static _DEFAULT_E2L_JOIN_PORT: u8 = 3;
     static DEFAULT_E2L_APP_PORT: u8 = 4;
-    static _DEFAULT_E2L_COMMAND_PORT: u8 = 5;
 
     lazy_static! {
         static ref PACKETNAMES: HashMap<u8, &'static str> = {
@@ -59,8 +61,8 @@ pub(crate) mod e2l_module {
         hostname: Arc<Mutex<String>>,
         fwinfo: Arc<Mutex<ForwardInfo>>,
         e2l_crypto: Arc<Mutex<E2LCrypto>>,
+        stats: Arc<Mutex<CombinedStats>>
     }
-
     // STATIC FUNCTION
     impl E2LModule {
         fn debug(msg: String) {
@@ -119,11 +121,12 @@ pub(crate) mod e2l_module {
             let default_array: [u8; 4] = [0, 0, 0, 0];
             v.try_into().unwrap_or(default_array)
         }
+        
     }
 
     // PRIVATE FUNCTIONS
     impl E2LModule {
-        async fn start_gw_stats_thread(&self) {
+        async fn start_stats_thread(&self) {
             Self::info(format!("Starting System counter stats thread!"));
             let hostname_mut = self.hostname.lock().expect("Could not lock!");
             let hostname = hostname_mut.clone();
@@ -132,60 +135,61 @@ pub(crate) mod e2l_module {
             let hostname_mut = self.hostname.lock().expect("Could not lock!");
             let hostname = hostname.clone();
             std::mem::drop(hostname_mut);
+            let stats_mut =Arc::clone(&self.stats);
+
             let mqtt_variables: MqttVariables = Self::charge_mqtt_variables();
+            let sleep_timer = dotenv::var("SLEEP_TIMER").unwrap().parse::<u64>().unwrap();
+
+
 
             thread::spawn(move || {
-                let mut s: System = System::new_all();
-                Self::info(format!("System counter stats thread started!"));
+                    let mut s: System = System::new_all();
+            
+                    Self::info(format!("System counter stats thread started!"));
 
-                let mqtt_client = E2LMqttClient::new(
-                    hostname.clone(),
-                    "sys_stats_publisher".to_string(),
-                    mqtt_variables,
-                    e2l_crypto_clone_publisher,
-                );
-                loop {
-                    let rx_frames: u32;
-                    let tx_frames: u32;
-                    let fw_frames: u32;
-                    let proc_frames: u32;
-                    unsafe {
-                        rx_frames = RX_FRAMES.clone();
-                        tx_frames = TX_FRAMES.clone();
-                        fw_frames = FW_FRAMES.clone();
-                        proc_frames = PROC_FRAMES.clone();
-                        RX_FRAMES = 0;
-                        TX_FRAMES = 0;
-                        FW_FRAMES = 0;
-                        PROC_FRAMES = 0;
+                    let mqtt_client = E2LMqttClient::new(
+                        hostname.clone(),
+                        "sys_stats_publisher".to_string(),
+                        mqtt_variables,
+                        e2l_crypto_clone_publisher
+                    );
+
+                    loop {
+                        s.refresh_memory();
+                        // Get the total network usage
+                        s.refresh_networks(); 
+                        let mut sys = System::new_all(); // must be mutable!
+                        let up_kb = sys.get_ntwk_up(); 
+                        let down_kb = sys.get_ntwk_down();
+                        // Get memory & Swap usage
+                        let used_swap=s.swap_used();
+                        // Get Cpu usage
+                        s.refresh_cpu(); // Refreshing CPU information.
+                        let used_cpu = s.global_cpu_info().cpu_usage();
+                        Self::debug(format!("{}%", used_cpu));
+                        let mut stats= stats_mut.lock().expect("Could not lock");
+                        stats.gw_stats.mem_usage= s.used_memory();
+                        stats.gw_stats.mem_usage_percentage= s.used_memory()*100;
+                        stats.gw_stats.mem_available= s.available_memory();
+                        stats.gw_stats.ntwk_down= down_kb;
+                        stats.gw_stats.ntwk_up= up_kb;
+                        stats.gw_stats.cpu_usage= used_cpu;
+                        stats.gw_stats.cpu_usage_percentage= used_cpu*100.0;
+                        stats.gw_stats.swp_usage_percentage= used_swap;
+
+                        let final_stats= stats.clone();
+                        stats.reset();
+                        std::mem::drop(stats);
+                        let mqtt_payload_str = serde_json::to_string(&final_stats)
+                                .unwrap_or_else(|_| "Error".to_string());
+                        let _= mqtt_client.publish_to_control("stats".to_string(), mqtt_payload_str);
+                        println!("FINAL STATS:::{:?}",final_stats);
+                        thread::sleep(Duration::from_secs(sleep_timer));
                     }
-                    s.refresh_memory();
-                    let used_memory = s.used_memory();
-                    let available_memory = s.available_memory();
-                    Self::debug(format!("{} bytes", used_memory));
-                    Self::debug(format!("{} bytes", available_memory));
-
-                    s.refresh_cpu(); // Refreshing CPU information.
-                    let used_cpu = s.global_cpu_info().cpu_usage();
-                    Self::debug(format!("{}%", used_cpu));
-
-                    let gw_stats_obj = GwStats {
-                        gw_id: hostname.clone(),
-                        rx_frames: rx_frames,
-                        tx_frames: tx_frames,
-                        fw_frames: fw_frames,
-                        proc_frames: proc_frames,
-                        mem_usage: used_memory as f32 / available_memory as f32,
-                        cpu_usage: used_cpu,
-                    };
-
-                    let gw_stats_str = serde_json::to_string(&gw_stats_obj).unwrap();
-
-                    let _ = mqtt_client.publish_to_process(gw_stats_str.clone());
-
-                    thread::sleep(Duration::from_millis(5000));
-                }
+               
+                
             });
+
         }
 
         async fn handle_data_payload(
@@ -208,16 +212,12 @@ pub(crate) mod e2l_module {
             let _dev_addr = u32::from_be_bytes(Self::extract_dev_addr_array(
                 dev_addr_vec.into_iter().rev().collect(),
             ));
-
+            
             let is_active: bool;
             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
             is_active = e2l_crypto.is_active();
             std::mem::drop(e2l_crypto);
             if is_active {
-                // UPDATE RX_FRAMES COUNTER
-                unsafe {
-                    RX_FRAMES = RX_FRAMES + 1;
-                }
                 // get epoch time
                 let start = SystemTime::now();
                 let _timetag = start
@@ -229,7 +229,6 @@ pub(crate) mod e2l_module {
                 let e2ed_enabled: bool = (f_port == DEFAULT_E2L_APP_PORT)
                     && e2l_crypto.check_e2ed_enabled(dev_addr_string.clone());
                 std::mem::drop(e2l_crypto);
-
                 if e2ed_enabled {
                     let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
                     let mqtt_payload_option = e2l_crypto.get_json_mqtt_payload(
@@ -241,11 +240,15 @@ pub(crate) mod e2l_module {
                         None,
                     );
                     std::mem::drop(e2l_crypto);
+                    ///////////////////////////////////////////////////////////////////////
+                    // Processing for a device that is already enabled in E2L mode
+                    // Increase frame for processing
+                    ///////////////////////////////////////////////////////////////////////
                     match mqtt_payload_option {
                         Some(mqtt_payload) => {
-                            unsafe {
-                                PROC_FRAMES = PROC_FRAMES + 1;
-                            }
+                            let mut stats= self.stats.lock().expect("Could not lock!");
+                            stats.record_proc_frame(dev_addr_string.clone());
+                            std::mem::drop(stats);
                             let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                 .unwrap_or_else(|_| "Error".to_string());
                             mqtt_client
@@ -259,6 +262,9 @@ pub(crate) mod e2l_module {
                     }
                     will_send = false;
                 } else {
+                    //////////////////////////////////////////////////////////////////////
+                    // If the end-device is not enabled then we have to check the port
+                    /////////////////////////////////////////////////////////////////////
                     match f_port {
                         port if port == DEFAULT_E2L_APP_PORT => {
                             let e2l_crypto = self.e2l_crypto.lock().expect("Could not lock!");
@@ -267,25 +273,27 @@ pub(crate) mod e2l_module {
                                     dev_addr_string.clone(),
                                     fcnt,
                                     packet,
-                                    gwmac,
-                                );
+                                    gwmac.clone(),
+                                ); 
                             std::mem::drop(e2l_crypto);
-
                             match mqtt_payload_option {
                                 Some(mqtt_payload) => {
-                                    unsafe {
-                                        FW_FRAMES = FW_FRAMES + 1;
-                                    }
                                     let gw_id = mqtt_payload.gw_id.clone();
                                     let mqtt_payload_str = serde_json::to_string(&mqtt_payload)
                                         .unwrap_or_else(|_| "Error".to_string());
                                     mqtt_client.publish_to_handover(gw_id, mqtt_payload_str);
+                                    let mut stats = self.stats.lock().expect("Could not lock!");
+                                    stats.record_tx_ho_frame(dev_addr_string.clone());
+                                    std::mem::drop(stats);
                                     will_send = false;
                                 }
-                                None => {}
+                                None => {
+                                    println!("There are some problems at this point!!{:?}", mqtt_payload_option);
+                                }
                             }
                         }
                         port if port == DEFAULT_APP_PORT => {
+                            println!("THAT IS THE NUMBER OF PORT:{}",port);
                             let fwinfo = self.fwinfo.lock().expect("Could not lock!");
                             match fwinfo.forward_protocol {
                                 ForwardProtocols::UDP => {
@@ -293,9 +301,9 @@ pub(crate) mod e2l_module {
                                         "Forwarding to NS: {:x?}",
                                         fwinfo.forward_host.clone()
                                     ));
-                                    unsafe {
-                                        TX_FRAMES = TX_FRAMES + 1;
-                                    }
+                                    let mut stats= self.stats.lock().expect("Could not lock!");
+                                    stats.record_fw_frame(dev_addr_string.clone());
+                                    std::mem::drop(stats);
                                 } // _ => panic!("Forwarding protocol not implemented!"),
                             }
 
@@ -309,7 +317,7 @@ pub(crate) mod e2l_module {
                 return None;
             }
             return Some(will_send);
-        }
+        } 
     }
 
     // PUBLIC FUNCTIONS
@@ -341,19 +349,28 @@ pub(crate) mod e2l_module {
                 }
             }
 
+            
+             /* 
+             * STATS  
+             */
+            let stats= CombinedStats::default();
+            let stats_arc = Arc::new(Mutex::new(stats));
+            let stats_crypto= Arc::clone(&stats_arc);
             /*
              * E2LCrypto
              */
-            let e2l_crypto = E2LCrypto::new(hostname.clone());
+            let e2l_crypto = E2LCrypto::new(hostname.clone(),stats_crypto);
             let e2l_crypto_arc = Arc::new(Mutex::new(e2l_crypto));
+
             E2LModule {
                 hostname: Arc::new(Mutex::new(hostname.clone())),
                 fwinfo: Arc::new(Mutex::new(fwinfo)),
                 e2l_crypto: e2l_crypto_arc,
+                stats:stats_arc
             }
         }
 
-        pub async fn run(self) -> Result<(), Box<dyn std::error::Error>> {
+        pub async fn run(&self) -> Result<(), Box<dyn std::error::Error>> {
             /**************************
              * MQTT BROKER CONNECTION *
              **************************/
@@ -371,7 +388,7 @@ pub(crate) mod e2l_module {
                 hostname_publisher,
                 "publisher".to_string(),
                 mqtt_variables,
-                e2l_crypto_clone_publisher,
+                e2l_crypto_clone_publisher     
             );
             /********************
              * CREATE AS BRIDGE *
@@ -387,7 +404,7 @@ pub(crate) mod e2l_module {
                     hostname_control_client,
                     "control_client".to_string(),
                     mqtt_variables,
-                    e2l_crypto_clone_control_client,
+                    e2l_crypto_clone_control_client
                 );
                 let rt =
                     tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
@@ -399,12 +416,17 @@ pub(crate) mod e2l_module {
                     hostname_handover_client,
                     "handover_client".to_string(),
                     mqtt_variables,
-                    e2l_crypto_clone_handover_client,
+                    e2l_crypto_clone_handover_client
                 );
                 let rt =
                     tokio::runtime::Runtime::new().expect("Failed to obtain a new RunTime object");
                 rt.block_on(handover_mqtt_client.run_handover_client());
             });
+
+            /***********************
+             * START STATS THREAD
+             ***********************/
+            self.start_stats_thread().await;
 
             /***********************
              * SEND PUB INFO TO AS *
@@ -470,13 +492,7 @@ pub(crate) mod e2l_module {
                     ));
                 }
             });
-
-            /******************
-             * GW STATS LOOP *
-             ******************/
-
-            self.start_gw_stats_thread().await;
-
+            
             /*************
              * MAIN LOOP *
              *************/
@@ -492,10 +508,10 @@ pub(crate) mod e2l_module {
                 //we create a new thread for each unique client
                 let mut remove_existing = false;
                 loop {
-                    Self::debug(format!("Received packet from client {}", src_addr));
-
+                    Self::debug(format!("Received packet from client {}", src_addr)); 
                     let mut ignore_failure = true;
                     let client_id = format!("{}", src_addr);
+
 
                     if remove_existing {
                         Self::debug(format!("Removing existing forwarder from map."));
@@ -576,6 +592,7 @@ pub(crate) mod e2l_module {
                         sender
                     });
 
+
                     let to_send = buf[..num_bytes].to_vec();
 
                     let mut will_send = true;
@@ -589,6 +606,7 @@ pub(crate) mod e2l_module {
                                 "Evaluate if forwarding packet from client {:?} to upstream server",
                                 data_json.rxpk
                             ));
+                           
                             if data_json.rxpk.len() == 0 {
                                 let fwinfo = self.fwinfo.lock().expect("Could not lock!");
                                 match fwinfo.forward_protocol {
@@ -604,14 +622,25 @@ pub(crate) mod e2l_module {
                                 for packet in data_json.rxpk.iter() {
                                     let data: Vec<u8> =
                                         general_purpose::STANDARD.decode(&packet.data).unwrap();
-
+                                
+                                    
                                     let gwmac: String = hex::encode(&to_send[4..12]);
                                     Self::debug(format!("Extracted GwMac {:x?}", gwmac));
-
+                                    
                                     let parsed_data = parse(data.clone());
-
                                     match parsed_data {
                                         Ok(PhyPayload::Data(DataPayload::Encrypted(phy))) => {
+                                            let fhdr= phy.fhdr();
+                                            let dev_addr_vec = fhdr.dev_addr().as_ref().to_vec();
+                                            let aux: Vec<u8> = dev_addr_vec.clone().into_iter().rev().collect();
+                                            let strs: Vec<String> = aux.iter().map(|b| format!("{:02X}", b)).collect();
+                                            let dev_addr_string = strs.join("");
+
+
+                                            let mut stats= self.stats.lock().expect("Could not lock");
+                                            stats.record_rx_frame(dev_addr_string,packet.clone());
+                                            std::mem::drop(stats);
+
                                             let will_send_option = self
                                                 .handle_data_payload(
                                                     phy,
@@ -632,14 +661,14 @@ pub(crate) mod e2l_module {
                                         }
                                         Ok(PhyPayload::JoinRequest(phy)) => {
                                             let fwinfo =
-                                                self.fwinfo.lock().expect("Could not lock!");
+                                            self.fwinfo.lock().expect("Could not lock!");
                                             match fwinfo.forward_protocol {
                                                 ForwardProtocols::UDP => {
-                                                    Self::debug(format!(
-                                                "Forwarding to {:x?}  JoinRequest with len {}",
-                                                fwinfo.forward_host.clone(),
-                                                phy.as_bytes().len()
-                                            ));
+                                                        Self::debug(format!(
+                                                        "Forwarding to {:x?}  JoinRequest with len {}",
+                                                        fwinfo.forward_host.clone(),
+                                                        phy.as_bytes().len()
+                                                    ));
                                                 } // _ => panic!("Forwarding protocol not implemented!"),
                                             }
                                             std::mem::drop(fwinfo);
@@ -653,8 +682,11 @@ pub(crate) mod e2l_module {
                                     }
                                 }
                             }
+                            
+                            
                         }
                         _ => (),
+                        
                     }
 
                     if will_send {
@@ -662,6 +694,7 @@ pub(crate) mod e2l_module {
                             Ok(_) => {
                                 Self::debug(format!(
                                     "Forwarding {} ({}) to upstream server",
+                                    //fw_frame increase
                                     PACKETNAMES[&to_send[3]], &to_send[3]
                                 ));
 
@@ -687,6 +720,7 @@ pub(crate) mod e2l_module {
                         break;
                     }
                 }
+                
             }
 
             // Ok(())

@@ -1,5 +1,5 @@
 [package]
-name = "e2l-parser"
+name = "e2l_parser"
 version = "1.0.0"
 edition = "2021"
 authors = ["s.milani", "d.garlisi"]
@@ -12,13 +12,14 @@ categories = ["network-programming", "edge-computing", "lorawan", "edge2lora"]
 license = "MIT"
 
 [dependencies]
+lorawan = "0.9"
 rand = "0.3"
 lazy_static = "1.4.0"
 serde_json = "1.0.78"
 serde_derive = "1.0.136"
 lorawan-encoding = { git = "https://github.com/ivajloip/rust-lorawan"}
 base64 = "0.21.7"
-dotenv = { version="0.15.0",git="https://github.com/dotenv-rs/dotenv"}
+dotenv = { version = "0.15.0", git = "https://github.com/dotenv-rs/dotenv" }
 hex = "0.4"
 tokio = { version = "1.0", features = ["macros", "rt-multi-thread"] }
 p256 = { version = "0.13.2", features = ["ecdh"] }
@@ -28,7 +29,8 @@ paho-mqtt = "0.12.3"
 gethostname = "0.4.3"
 futures = "0.3.30"
 reqwest = { version = "0.12.8", features = ["json"] }
-serde = "1.0.215"
+serde = { version = "1.0.215", features = ["derive"] }
+ordered-float = { version= "5.0.0", features = ["serde"] }
 
 [target.x86_64-unknown-linux-musl]
 rustflags = ["-C", "linker-flavor=ld.lld"]
@@ -39,3 +41,8 @@ linker = "aarch64-linux-gcc"
 
 [package.metadata.cargo-machete]
 ignored = ["serde"]
+
+
+
+
+

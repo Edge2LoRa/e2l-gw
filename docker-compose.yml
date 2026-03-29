@@ -4,7 +4,9 @@ services:
   e2l_gw_broker:
     hostname: e2l-gw-broker-${GW_ID}
     image: emqx/emqx:5.8.0
-    container_name: e2l-gw-broker
+    restart: always
+    user: "${HOST_UID}:${HOST_GID}"
+    container_name: e2l-gw-broker-${GW_ID}
     environment:
       - EMQX_API_KEY__BOOTSTRAP_FILE=/opt/emqx/etc/default_api_key.conf
     #   - "EMQX_NODE_NAME=emqx@e2l-gw-broker.e2l_network"
@@ -54,6 +56,6 @@ services:
 networks:
   e2l_network:
     driver: bridge
-#     name: e2l_network
 #     driver: overlay
-#     external: true
+    name: e2l_network
+    external: true

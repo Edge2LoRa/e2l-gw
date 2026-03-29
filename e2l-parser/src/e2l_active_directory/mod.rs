@@ -15,7 +15,7 @@ pub(crate) mod e2l_active_directory {
     pub struct AssociatedDevInfo {
         pub dev_eui: String,
         pub dev_addr: String,
-        pub dev_public_key: P256PublicKey<p256::NistP256>,
+        pub _dev_public_key: P256PublicKey<p256::NistP256>,
         pub edge_s_enc_key: AES128,
         pub edge_s_int_key: AES128,
         pub fcnts: Vec<u16>,
@@ -102,7 +102,7 @@ pub(crate) mod e2l_active_directory {
                 AssociatedDevInfo {
                     dev_eui: dev_eui.clone(),
                     dev_addr: dev_addr.clone(),
-                    dev_public_key,
+                    _dev_public_key:dev_public_key,
                     edge_s_enc_key,
                     edge_s_int_key,
                     fcnts: fncts,
